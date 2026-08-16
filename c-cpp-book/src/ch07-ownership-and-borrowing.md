@@ -1,53 +1,53 @@
-# Rust memory management
+# Управление памятью в Rust
 
-> **What you'll learn:** Rust's ownership system — the single most important concept in the language. After this chapter you'll understand move semantics, borrowing rules, and the `Drop` trait. If you grasp this chapter, the rest of Rust follows naturally. If you're struggling, re-read it — ownership clicks on the second pass for most C/C++ developers.
+> **Что вы узнаете:** Систему владения Rust — важнейшую концепцию языка. После этой главы вы разберетесь с семантикой перемещения (move semantics), правилами заимствования (borrowing rules) и типажом `Drop`. Если вы усвоите эту главу, остальная часть Rust пойдет сама собой. Если вам будет трудно, прочитайте ее еще раз — у большинства разработчиков на C/C++ понимание владения складывается со второго прочтения.
 
-- Memory management in C/C++ is a source of bugs:
-    - In C: memory is allocated with `malloc()` and freed with `free()`. No checks against dangling pointers, use-after-free, or double-free
-    - In C++: RAII (Resource Acquisition Is Initialization) and smart pointers help, but `std::move(ptr)` compiles even after the move — use-after-move is UB
-- Rust makes RAII **foolproof**:
-    - Move is **destructive** — the compiler refuses to let you touch the moved-from variable
-    - No Rule of Five needed (no copy ctor, move ctor, copy assign, move assign, destructor)
-    - Rust gives complete control of memory allocation, but enforces safety at **compile time**
-    - This is done by a combination of mechanisms including ownership, borrowing, mutability and lifetimes
-    - Rust runtime allocations can happen both on the stack and the heap
+- Управление памятью в C/C++ является источником ошибок:
+    - В C: память выделяется с помощью `malloc()` и освобождается через `free()`. Нет никаких проверок от висячих указателей (dangling pointers), использования после освобождения (use-after-free) или двойного освобождения (double-free).
+    - В C++: RAII (Resource Acquisition Is Initialization) и умные указатели помогают, но `std::move(ptr)` скомпилируется даже после перемещения — использование после перемещения (use-after-move) приводит к неопределенному поведению (UB).
+- Rust делает RAII **абсолютно надежным**:
+    - Перемещение (move) является **деструктивным** — компилятор не позволит вам обратиться к переменной, из которой было выполнено перемещение.
+    - Нет необходимости в Правиле пяти (rule of five) (не нужны конструктор копирования, конструктор перемещения, оператор копирующего присваивания, оператор перемещающего присваивания и деструктор).
+    - Rust дает полный контроль над выделением памяти, но гарантирует безопасность на **этапе компиляции**.
+    - Это достигается за счет сочетания таких механизмов, как владение (ownership), заимствование (borrowing), изменяемость (mutability) и времена жизни (lifetimes).
+    - В Rust выделение памяти во время работы программы может происходить как на стеке, так и в куче.
 
-> **For C++ developers — Smart Pointer Mapping:**
+> **Для разработчиков на C++ — Соответствие умных указателей:**
 >
-> | **C++** | **Rust** | **Safety Improvement** |
+> | **C++** | **Rust** | **Улучшение безопасности** |
 > |---------|----------|----------------------|
-> | `std::unique_ptr<T>` | `Box<T>` | No use-after-move possible |
-> | `std::shared_ptr<T>` | `Rc<T>` (single-thread) | No reference cycles by default |
-> | `std::shared_ptr<T>` (thread-safe) | `Arc<T>` | Explicit thread-safety |
-> | `std::weak_ptr<T>` | `Weak<T>` | Must check validity |
-> | Raw pointer | `*const T` / `*mut T` | Only in `unsafe` blocks |
+> | `std::unique_ptr<T>` | `Box<T>` | Невозможно использование после перемещения |
+> | `std::shared_ptr<T>` | `Rc<T>` (однопоточный) | Отсутствие циклов ссылок по умолчанию |
+> | `std::shared_ptr<T>` (потокобезопасный) | `Arc<T>` | Явная потокобезопасность |
+> | `std::weak_ptr<T>` | `Weak<T>` | Необходимо проверять валидность |
+> | Необработанный указатель (Raw pointer) | `*const T` / `*mut T` | Только в блоках `unsafe` |
 >
-> For C developers: `Box<T>` replaces `malloc`/`free` pairs. `Rc<T>` replaces manual reference counting. Raw pointers exist but are confined to `unsafe` blocks.
+> Для разработчиков на C: `Box<T>` заменяет пару `malloc`/`free`. `Rc<T>` заменяет ручной подсчет ссылок. Необработанные указатели существуют, но они ограничены блоками `unsafe`.
 
-# Rust ownership, borrowing and lifetimes
-- Recall that Rust only permits a single mutable reference to a variable and multiple read-only references
-    - The initial declaration of the variable establishes ```ownership```
-    - Subsequent references ```borrow``` from the original owner. The rule is that the scope of the borrow can never exceed the owning scope. In other words, the ```lifetime``` of a borrow cannot exceed the owning lifetime
+# Владение, заимствование и времена жизни в Rust
+- Напомним, что Rust разрешает только одну изменяемую ссылку на переменную и несколько ссылок только для чтения.
+    - Начальное объявление переменной устанавливает ```владение``` (ownership).
+    - Последующие ссылки ```заимствуют``` (borrow) значение у первоначального владельца. Правило заключается в том, что область видимости заимствования никогда не может превышать область видимости владельца. Другими словами, ```время жизни``` (lifetime) заимствования не может превышать время жизни владельца.
 ```rust
 fn main() {
-    let a = 42; // Owner
-    let b = &a; // First borrow
+    let a = 42; // Владелец
+    let b = &a; // Первое заимствование
     {
         let aa = 42;
-        let c = &a; // Second borrow; a is still in scope
-        // Ok: c goes out of scope here
-        // aa goes out of scope here
+        let c = &a; // Второе заимствование; a всё ещё в области видимости
+        // Хорошо: c выходит из области видимости здесь
+        // aa выходит из области видимости здесь
     }
-    // let d = &aa; // Will not compile unless aa is moved to outside scope
-    // b implicitly goes out of scope before a
-    // a goes out of scope last
+    // let d = &aa; // Не скомпилируется, если aa не перемещена во внешнюю область видимости
+    // b неявно выходит из области видимости перед a
+    // a выходит из области видимости последней
 }
 ```
 
-- Rust can pass parameters to methods using several different mechanisms
-    - By value (copy): Typically types that can be trivially copied (ex: u8, u32, i8, i32)
-    - By reference: This is the equivalent of passing a pointer to the actual value. This is also commonly known as borrowing, and the reference can be immutable (```&```), or mutable (```&mut```) 
-    - By moving: This transfers "ownership" of the value to the function. The caller can no longer reference the original value
+- Rust может передавать параметры в методы с использованием нескольких различных механизмов:
+    - По значению (копирование): обычно типы, которые можно тривиально скопировать (например, u8, u32, i8, i32).
+    - По ссылке: это эквивалентно передаче указателя на фактическое значение. Это также называют заимствованием, и ссылка может быть неизменяемой (```&```) или изменяемой (```&mut```).
+    - Путем перемещения: это передает «владение» значением функции. Вызывающая сторона больше не может ссылаться на исходное значение.
 ```rust
 fn foo(x: &u32) {
     println!("{x}");
@@ -57,89 +57,89 @@ fn bar(x: u32) {
 }
 fn main() {
     let a = 42;
-    foo(&a);    // By reference
-    bar(a);     // By value (copy)
+    foo(&a);    // По ссылке
+    bar(a);     // По значению (копирование)
 }
 ```
 
-- Rust prohibits dangling references from methods
-    - References returned by methods must still be in scope
-    - Rust will automatically ```drop``` a reference when it goes out of scope. 
+- Rust запрещает возвращать висячие ссылки из методов:
+    - Ссылки, возвращаемые методами, должны оставаться в области видимости.
+    - Rust автоматически ```освободит``` (drop) ссылку, когда она выйдет из области видимости.
 ```rust
 fn no_dangling() -> &u32 {
-    // lifetime of a begins here
+    // время жизни a начинается здесь
     let a = 42;
-    // Won't compile. lifetime of a ends here
+    // Не скомпилируется. Время жизни a заканчивается здесь
     &a
 }
 
 fn ok_reference(a: &u32) -> &u32 {
-    // Ok because the lifetime of a always exceeds ok_reference()
+    // Хорошо, потому что время жизни a всегда превышает выполнение ok_reference()
     a
 }
 fn main() {
-    let a = 42;     // lifetime of a begins here
+    let a = 42;     // время жизни a начинается здесь
     let b = ok_reference(&a);
-    // lifetime of b ends here
-    // lifetime of a ends here
+    // время жизни b заканчивается здесь
+    // время жизни a заканчивается здесь
 }
 ```
 
-# Rust move semantics
-- By default, Rust assignment transfers ownership
+# Семантика перемещения в Rust
+- По умолчанию присваивание в Rust передает владение.
 ```rust
 fn main() {
-    let s = String::from("Rust");    // Allocate a string from the heap
-    let s1 = s; // Transfer ownership to s1. s is invalid at this point
+    let s = String::from("Rust");    // Выделение строки в куче
+    let s1 = s; // Передача владения в s1. С этого момента s недействительна
     println!("{s1}");
-    // This will not compile
+    // Это не скомпилируется
     //println!("{s}");
-    // s1 goes out of scope here and the memory is deallocated
-    // s goes out of scope here, but nothing happens because it doesn't own anything
+    // s1 выходит из области видимости здесь, и память освобождается
+    // s выходит из области видимости здесь, но ничего не происходит, так как она ничем не владеет
 }
 ```
 ```mermaid
 graph LR
-    subgraph "Before: let s1 = s"
-        S["s (stack)<br/>ptr"] -->|"owns"| H1["Heap: R u s t"]
+    subgraph "До: let s1 = s"
+        S["s (стек)<br/>ptr"] -->|"владеет"| H1["Куча: R u s t"]
     end
 
-    subgraph "After: let s1 = s"
-        S_MOVED["s (stack)<br/>⚠️ MOVED"] -.->|"invalid"| H2["Heap: R u s t"]
-        S1["s1 (stack)<br/>ptr"] -->|"now owns"| H2
+    subgraph "После: let s1 = s"
+        S_MOVED["s (стек)<br/>⚠️ ПЕРЕМЕЩЕНО"] -.->|"недействительно"| H2["Куча: R u s t"]
+        S1["s1 (стек)<br/>ptr"] -->|"теперь владеет"| H2
     end
 
     style S_MOVED fill:#ff6b6b,color:#000,stroke:#333
     style S1 fill:#51cf66,color:#000,stroke:#333
     style H2 fill:#91e5a3,color:#000,stroke:#333
 ```
-*After `let s1 = s`, ownership transfers to `s1`. The heap data stays put — only the stack pointer moves. `s` is now invalid.*
+*После `let s1 = s` владение переходит к `s1`. Данные в куче остаются на месте — перемещается только указатель на стеке. `s` теперь недействительна.*
 
 ----
-# Rust move semantics and borrowing
+# Семантика перемещения и заимствование в Rust
 ```rust
 fn foo(s : String) {
     println!("{s}");
-    // The heap memory pointed to by s will be deallocated here
+    // Память в куче, на которую указывает s, будет освобождена здесь
 }
 fn bar(s : &String) {
     println!("{s}");
-    // Nothing happens -- s is borrowed
+    // Ничего не происходит — s заимствована
 }
 fn main() {
-    let s = String::from("Rust string move example");    // Allocate a string from the heap
-    foo(s); // Transfers ownership; s is invalid now
-    // println!("{s}");  // will not compile
+    let s = String::from("Rust string move example");    // Выделение строки в куче
+    foo(s); // Передача владения; s теперь недействительна
+    // println!("{s}");  // не скомпилируется
     let t = String::from("Rust string borrow example");
-    bar(&t);    // t continues to hold ownership
+    bar(&t);    // t продолжает владеть строкой
     println!("{t}"); 
 }
 ```
 
-# Rust move semantics and ownership
-- It is possible to transfer ownership by moving
-    - It is illegal to reference outstanding references after the move is completed
-    - Consider borrowing if a move is not desirable
+# Семантика перемещения и владение в Rust
+- Владение можно передать перемещением:
+    - Запрещено использовать существующие ссылки после завершения перемещения.
+    - Подумайте о заимствовании, если перемещение нежелательно.
 ```rust
 struct Point {
     x: u32,
@@ -153,29 +153,29 @@ fn borrow_point(p: &Point) {
 }
 fn main() {
     let p = Point {x: 10, y: 20};
-    // Try flipping the two lines
+    // Попробуйте поменять местами эти две строки
     borrow_point(&p);
     consume_point(p);
 }
 ```
 
 # Rust Clone
-- The ```clone()``` method can be used to copy the original memory. The original reference continues to be valid (the downside is that we have 2x the allocation)
+- Метод ```clone()``` можно использовать для копирования исходной памяти. Исходная ссылка продолжает оставаться валидной (минус в том, что выделяется в 2 раза больше памяти).
 ```rust
 fn main() {
-    let s = String::from("Rust");    // Allocate a string from the heap
-    let s1 = s.clone(); // Copy the string; creates a new allocation on the heap
+    let s = String::from("Rust");    // Выделение строки в куче
+    let s1 = s.clone(); // Копирование строки; создается новая аллокация в куче
     println!("{s1}");  
     println!("{s}");
-    // s1 goes out of scope here and the memory is deallocated
-    // s goes out of scope here, and the memory is deallocated
+    // s1 выходит из области видимости здесь, и память освобождается
+    // s выходит из области видимости здесь, и память освобождается
 }
 ```
 ```mermaid
 graph LR
-    subgraph "After: let s1 = s.clone()"
-        S["s (stack)<br/>ptr"] -->|"owns"| H1["Heap: R u s t"]
-        S1["s1 (stack)<br/>ptr"] -->|"owns (copy)"| H2["Heap: R u s t"]
+    subgraph "После: let s1 = s.clone()"
+        S["s (стек)<br/>ptr"] -->|"владеет"| H1["Куча: R u s t"]
+        S1["s1 (стек)<br/>ptr"] -->|"владеет (копия)"| H2["Куча: R u s t"]
     end
 
     style S fill:#51cf66,color:#000,stroke:#333
@@ -183,49 +183,49 @@ graph LR
     style H1 fill:#91e5a3,color:#000,stroke:#333
     style H2 fill:#91e5a3,color:#000,stroke:#333
 ```
-*`clone()` creates a **separate** heap allocation. Both `s` and `s1` are valid — each owns its own copy.*
+*`clone()` создает **отдельное** выделение памяти в куче. И `s`, и `s1` остаются действительными — каждый владеет своей копией.*
 
-# Rust Copy trait
-- Rust implements copy semantics for built-in types using the ```Copy``` trait
-    - Examples include u8, u32, i8, i32, etc. Copy semantics use "pass by value"
-    - User defined data types can optionally opt into ```copy``` semantics using the ```derive``` macro with to automatically implement the ```Copy``` trait
-    - The compiler will allocate space for the copy following a new assignment
+# Типаж Copy в Rust
+- Rust реализует семантику копирования для встроенных типов с помощью типажа ```Copy```.
+    - Примеры включают u8, u32, i8, i32 и т. д. Семантика копирования использует передачу по значению.
+    - Определенные пользователем типы данных могут опционально использовать семантику копирования с помощью макроса ```derive```, чтобы автоматически реализовать типаж ```Copy```.
+    - Компилятор выделит место для копии после нового присваивания.
 ```rust
-// Try commenting this out to see the change in let p1 = p; below
-#[derive(Copy, Clone, Debug)]   // We'll discuss this more later
+// Попробуйте закомментировать это, чтобы увидеть изменения в let p1 = p; ниже
+#[derive(Copy, Clone, Debug)]   // Мы обсудим это подробнее позже
 struct Point{x: u32, y:u32}
 fn main() {
     let p = Point {x: 42, y: 40};
-    let p1 = p;     // This will perform a copy now instead of move
+    let p1 = p;     // Теперь вместо перемещения будет выполнено копирование
     println!("p: {p:?}");
     println!("p1: {p:?}");
-    let p2 = p1.clone();    // Semantically the same as copy
+    let p2 = p1.clone();    // Семантически то же самое, что и копирование
 }
 ```
 
-# Rust Drop trait
+# Типаж Drop в Rust
 
-- Rust automatically calls the `drop()` method at the end of scope
-    - `drop` is part of a generic trait called `Drop`. The compiler provides a blanket NOP implementation for all types, but types can override it. For example, the `String` type overrides it to release heap-allocated memory
-    - For C developers: this replaces the need for manual `free()` calls — resources are automatically released when they go out of scope (RAII)
-- **Key safety:** You cannot call `.drop()` directly (the compiler forbids it). Instead, use `drop(obj)` which moves the value into the function, runs its destructor, and prevents any further use — eliminating double-free bugs
+- Rust автоматически вызывает метод `drop()` в конце области видимости.
+    - `drop` является частью обобщенного типажа `Drop`. Компилятор предоставляет пустую реализацию (NOP) по умолчанию для всех типов, но типы могут переопределять её. Например, тип `String` переопределяет её для освобождения памяти, выделенной в куче.
+    - Для разработчиков на C: это заменяет необходимость ручных вызовов `free()` — ресурсы освобождаются автоматически при выходе из области видимости (RAII).
+- **Ключевая безопасность:** Вы не можете вызвать `.drop()` напрямую (компилятор это запрещает). Вместо этого используйте функцию `drop(obj)`, которая перемещает значение в функцию, запускает его деструктор и предотвращает любое дальнейшее использование, исключая ошибки двойного освобождения.
 
-> **For C++ developers:** `Drop` maps directly to C++ destructors (`~ClassName()`):
+> **Для разработчиков на C++:** `Drop` напрямую соответствует деструкторам C++ (`~ClassName()`):
 >
-> | | **C++ destructor** | **Rust `Drop`** |
+> | | **Деструктор C++** | **Rust `Drop`** |
 > |---|---|---|
-> | **Syntax** | `~MyClass() { ... }` | `impl Drop for MyType { fn drop(&mut self) { ... } }` |
-> | **When called** | End of scope (RAII) | End of scope (same) |
-> | **Called on move** | Source left in "valid but unspecified" state — destructor still runs on the moved-from object | Source is **gone** — no destructor call on moved-from value |
-> | **Manual call** | `obj.~MyClass()` (dangerous, rarely used) | `drop(obj)` (safe — takes ownership, calls `drop`, prevents further use) |
-> | **Order** | Reverse declaration order | Reverse declaration order (same) |
-> | **Rule of Five** | Must manage copy ctor, move ctor, copy assign, move assign, destructor | Only `Drop` — compiler handles move semantics, and `Clone` is opt-in |
-> | **Virtual dtor needed?** | Yes, if deleting through base pointer | No — no inheritance, so no slicing problem |
+> | **Синтаксис** | `~MyClass() { ... }` | `impl Drop for MyType { fn drop(&mut self) { ... } }` |
+> | **Когда вызывается** | Конец области видимости (RAII) | Конец области видимости (так же) |
+> | **Вызов при перемещении** | Источник остается в «валидном, но неопределенном» состоянии — деструктор всё ещё вызывается для перемещенного объекта | Источник **исчезает** — для перемещенного значения деструктор не вызывается |
+> | **Ручной вызов** | `obj.~MyClass()` (опасно, редко используется) | `drop(obj)` (безопасно — забирает владение, вызывает `drop`, предотвращает дальнейшее использование) |
+> | **Порядок** | Обратный порядку объявления | Обратный порядку объявления (так же) |
+> | **Правило пяти** | Необходимо управлять конструктором копирования, конструктором перемещения, оператором копирующего присваивания, оператором перемещающего присваивания и деструктором | Только `Drop` — компилятор берет на себя семантику перемещения, а `Clone` подключается по желанию |
+> | **Нужен виртуальный деструктор?** | Да, если удаление идет через указатель на базовый класс | Нет — наследование отсутствует, поэтому проблемы со срезкой объектов (slicing) нет |
 
 ```rust
 struct Point {x: u32, y:u32}
 
-// Equivalent to: ~Point() { printf("Goodbye point x:%u, y:%u\n", x, y); }
+// Эквивалентно: ~Point() { printf("Goodbye point x:%u, y:%u\n", x, y); }
 impl Drop for Point {
     fn drop(&mut self) {
         println!("Goodbye point x:{}, y:{}", self.x, self.y);
@@ -236,27 +236,27 @@ fn main() {
     {
         let p1 = Point{x:43, y: 43};
         println!("Exiting inner block");
-        // p1.drop() called here — like C++ end-of-scope destructor
+        // Здесь вызывается p1.drop() — аналогично деструктору C++ при выходе из области видимости
     }
     println!("Exiting main");
-    // p.drop() called here
+    // Здесь вызывается p.drop()
 }
 ```
 
-# Exercise: Move, Copy and Drop
+# Упражнение: Move, Copy и Drop
 
-🟡 **Intermediate** — experiment freely; the compiler will guide you
-- Create your own experiments with ```Point``` with and without ```Copy``` in ```#[derive(Debug)]``` in the below make sure you understand the differences. The idea is to get a solid understanding of how move vs. copy works, so make sure to ask
-- Implement a custom ```Drop``` for ```Point``` that sets x and y to 0 in ```drop```. This is a pattern that's useful for releasing locks and other resources for example
+🟡 **Средний уровень** — свободно экспериментируйте; компилятор подскажет вам
+- Проведите собственные эксперименты с ```Point``` с `Copy` и без него в ```#[derive(Debug)]``` ниже, чтобы убедиться, что вы понимаете различия. Идея состоит в том, чтобы получить четкое понимание того, как работает перемещение по сравнению с копированием, поэтому обязательно задавайте вопросы.
+- Реализуйте собственный ```Drop``` для ```Point```, который устанавливает x и y в 0 внутри ```drop```. Этот шаблон полезен, например, для освобождения блокировок и других ресурсов.
 ```rust
 struct Point{x: u32, y: u32}
 fn main() {
-    // Create Point, assign it to a different variable, create a new scope,
-    // pass point to a function, etc.
+    // Создайте Point, присвойте его другой переменной, создайте новую область видимости,
+    // передайте точку в функцию и т. д.
 }
 ```
 
-<details><summary>Solution (click to expand)</summary>
+<details><summary>Решение (нажмите, чтобы развернуть)</summary>
 
 ```rust
 #[derive(Debug)]
@@ -267,34 +267,34 @@ impl Drop for Point {
         println!("Dropping Point({}, {})", self.x, self.y);
         self.x = 0;
         self.y = 0;
-        // Note: setting to 0 in drop demonstrates the pattern,
-        // but you can't observe these values after drop completes
+        // Примечание: установка значений в 0 при сбросе демонстрирует шаблон,
+        // но вы не сможете прочитать эти значения после завершения drop
     }
 }
 
 fn consume(p: Point) {
     println!("Consuming: {:?}", p);
-    // p is dropped here
+    // p удаляется здесь
 }
 
 fn main() {
     let p1 = Point { x: 10, y: 20 };
-    let p2 = p1;  // Move — p1 is no longer valid
-    // println!("{:?}", p1);  // Won't compile: p1 was moved
+    let p2 = p1;  // Перемещение — p1 больше не валидна
+    // println!("{:?}", p1);  // Не скомпилируется: p1 была перемещена
 
     {
         let p3 = Point { x: 30, y: 40 };
         println!("p3 in inner scope: {:?}", p3);
-        // p3 is dropped here (end of scope)
+        // p3 удаляется здесь (конец области видимости)
     }
 
-    consume(p2);  // p2 is moved into consume and dropped there
-    // println!("{:?}", p2);  // Won't compile: p2 was moved
+    consume(p2);  // p2 перемещается в consume и удаляется там
+    // println!("{:?}", p2);  // Не скомпилируется: p2 была перемещена
 
-    // Now try: add #[derive(Copy, Clone)] to Point (and remove the Drop impl)
-    // and observe how p1 remains valid after let p2 = p1;
+    // Теперь попробуйте: добавьте #[derive(Copy, Clone)] к Point (и удалите реализацию Drop)
+    // и посмотрите, как p1 остается валидной после let p2 = p1;
 }
-// Output:
+// Вывод:
 // p3 in inner scope: Point { x: 30, y: 40 }
 // Dropping Point(30, 40)
 // Consuming: Point { x: 10, y: 20 }
@@ -302,5 +302,3 @@ fn main() {
 ```
 
 </details>
-
-

@@ -1,82 +1,83 @@
-### Unsafe Rust
+### Небезопасный Rust (Unsafe Rust)
 
-> **What you'll learn:** When and how to use `unsafe` — raw pointer dereferencing, FFI (Foreign Function Interface) for calling C from Rust and vice versa, `CString`/`CStr` for string interop, and how to write safe wrappers around unsafe code.
+> **Чему вы научитесь:** Когда и как использовать небезопасный код (`unsafe`) — разыменование сырых указателей, интерфейс внешних функций FFI (Foreign Function Interface) для вызова C из Rust и наоборот, `CString`/`CStr` для взаимодействия строк, а также написание безопасных оболочек вокруг небезопасного кода.
 
-- ```unsafe``` unlocks access to features that are normally disallowed by the Rust compiler
-    - Dereferencing raw pointers
-    - Accessing *mutable* static variables
+- Ключевое слово `unsafe` открывает доступ к функциям, которые обычно запрещены компилятором Rust:
+    - Разыменование сырых указателей
+    - Доступ к *изменяемым* статическим переменным
     - https://doc.rust-lang.org/book/ch19-01-unsafe-rust.html
-- With great power comes great responsibility
-    - ```unsafe``` tells the compiler "I, the programmer, take responsibility for upholding the invariants that the compiler normally guarantees"
-    - Must guarantee no aliased mutable and immutable references, no dangling pointers, no invalid references, ...
-    - The use of ```unsafe``` should be limited to the smallest possible scope
-    - All code using ```unsafe``` should have a "safety" comment describing the assumptions
+- С большой силой приходит большая ответственность:
+    - Блок `unsafe` сообщает компилятору: «Я, программист, беру на себя ответственность за соблюдение инвариантов, которые обычно гарантирует компилятор».
+    - Вы должны гарантировать отсутствие пересекающихся изменяемых и неизменяемых ссылок (aliased references), отсутствие висячих указателей, некорректных ссылок и т. д.
+    - Использование `unsafe` должно быть ограничено как можно меньшей областью видимости.
+    - Весь код, использующий `unsafe`, должен сопровождаться комментарием `// Safety:`, описывающим допущения.
 
-### Unsafe Rust examples
+### Примеры небезопасного Rust
+
 ```rust
 unsafe fn harmless() {}
 fn main() {
-    // Safety: We are calling a harmless unsafe function
+    // Safety: Мы вызываем безвредную небезопасную функцию
     unsafe {
         harmless();
     }
     let a = 42u32;
     let p = &a as *const u32;
-    // Safety: p is a valid pointer to a variable that will remain in scope
+    // Safety: p — валидный указатель на переменную, которая останется в области видимости
     unsafe {
         println!("{}", *p);
     }
-    // Safety: Not safe; for illustration purposes only
+    // Safety: Небезопасно; приведено только для иллюстрации
     let dangerous_buffer = 0xb8000 as *mut u32;
     unsafe {
         println!("About to go kaboom!!!");
-        *dangerous_buffer = 0; // This will SEGV on most modern machines
+        *dangerous_buffer = 0; // На большинстве современных систем это вызовет ошибку сегментации (SEGV)
     }
 }
 ```
 
-### Simple FFI example (Rust library function consumed by C)
+### Простой пример FFI (функция библиотеки Rust, используемая в C)
 
-## FFI Strings: CString and CStr
+## Строки в FFI: CString и CStr
 
-FFI stands for *Foreign Function Interface* — the mechanism Rust uses to call functions written in other languages (such as C) and vice versa.
+FFI (Foreign Function Interface) — это механизм, который Rust использует для вызова функций, написанных на других языках (таких как C), и наоборот.
 
-When interfacing with C code, Rust's `String` and `&str` types (which are UTF-8 without null terminators) aren't directly compatible with C strings (which are null-terminated byte arrays). Rust provides `CString` (owned) and `CStr` (borrowed) from `std::ffi` for this purpose:
+При взаимодействии с кодом на C типы строк Rust `String` и `&str` (которые представляют собой UTF-8 без завершающего нулевого символа) несовместимы напрямую со строками C (которые являются массивами байтов, заканчивающимися нулем). Для этой цели Rust предоставляет типы `CString` (владеющий) и `CStr` (заимствованный) из модуля `std::ffi`:
 
-| Type | Analogous to | Use when |
+| Тип | Аналог | Когда использовать |
 |------|-------------|----------|
-| `CString` | `String` (owned) | Creating a C string from Rust data |
-| `&CStr` | `&str` (borrowed) | Receiving a C string from foreign code |
+| `CString` | `String` (владеющий) | Создание строки C из данных Rust |
+| `&CStr` | `&str` (заимствованный) | Получение строки C из внешнего кода |
 
 ```rust
 use std::ffi::{CString, CStr};
 use std::os::raw::c_char;
 
 fn demo_ffi_strings() {
-    // Creating a C-compatible string (adds null terminator)
+    // Создание C-совместимой строки (добавляет завершающий нуль)
     let c_string = CString::new("Hello from Rust").expect("CString::new failed");
     let ptr: *const c_char = c_string.as_ptr();
 
-    // Converting a C string back to Rust (unsafe because we trust the pointer)
-    // Safety: ptr is valid and null-terminated (we just created it above)
+    // Преобразование строки C обратно в Rust (небезопасно, так как мы доверяем указателю)
+    // Safety: ptr валиден и заканчивается нулем (мы только что создали его выше)
     let back_to_rust: &CStr = unsafe { CStr::from_ptr(ptr) };
     let rust_str: &str = back_to_rust.to_str().expect("Invalid UTF-8");
     println!("{}", rust_str);
 }
 ```
 
-> **Warning**: `CString::new()` will return an error if the input contains interior null bytes (`\0`). Always handle the `Result`. You'll see `CStr` used extensively in the FFI examples below.
+> **Внимание**: Метод `CString::new()` вернет ошибку, если входные данные содержат внутренние нулевые байты (`\0`). Всегда обрабатывайте результат `Result`. Ниже вы увидите широкое использование `CStr` в примерах с FFI.
 
-- ```FFI``` methods must be marked with ```#[no_mangle]``` to ensure that the compiler doesn't mangle the name
-- We'll compile the crate as a static library
-    ```
+- Методы `FFI` должны быть помечены атрибутом `#[no_mangle]`, чтобы компилятор не искажал (mangled) их имена.
+- Мы скомпилируем крейт как статическую библиотеку.
+    ```rust
     #[no_mangle] 
     pub extern "C" fn add(left: u64, right: u64) -> u64 {
         left + right
     }
     ```
-- We'll compile the following C-code and link it against our static library.
-    ```
+- Мы скомпилируем следующий код на C и свяжем его с нашей статической библиотекой.
+    ```c
     #include <stdio.h>
     #include <stdint.h>
     extern uint64_t add(uint64_t, uint64_t);
@@ -85,14 +86,13 @@ fn demo_ffi_strings() {
     }
     ``` 
 
-### Complex FFI example
-- In the following examples, we'll create a Rust logging interface and expose it to
-[PYTHON] and ```C```
-    - We'll see how the same interface can be used natively from Rust and C
-    - We will explore the use of tools like ```cbindgen``` to generate header files for ```C```
-    - We will see how ```unsafe``` wrappers can act as a bridge to safe Rust code
+### Сложный пример FFI
+- В следующих примерах мы создадим интерфейс логирования на Rust и предоставим к нему доступ для Python и C.
+    - Мы увидим, как один и тот же интерфейс можно нативно использовать из Rust и C.
+    - Мы изучим использование инструментов вроде `cbindgen` для генерации заголовочных файлов C.
+    - Мы посмотрим, как небезопасные оболочки (`unsafe` wrappers) могут служить мостом к безопасному коду на Rust.
 
-## Logger helper functions
+## Вспомогательные функции логгера
 ```rust
 fn create_or_open_log_file(log_file: &str, overwrite: bool) -> Result<File, String> {
     if overwrite {
@@ -113,7 +113,7 @@ fn log_to_file(file_handle: &mut File, message: &str) -> Result<(), String> {
 }
 ```
 
-## Logger struct
+## Структура логгера
 ```rust
 struct SimpleLogger {
     log_level: LogLevel,
@@ -141,39 +141,39 @@ impl SimpleLogger {
 }
 ```
 
-## Testing
-- Testing functionality with Rust is trivial
-    - Test methods are decorated with ```#[test]```, and aren't part of the compiled binary 
-    - It's easy to create mock methods for testing purposes
+## Тестирование
+- Тестирование функциональности в Rust тривиально.
+    - Тестовые методы помечаются атрибутом `#[test]` и не включаются в составной скомпилированный бинарный файл.
+    - Для целей тестирования легко создавать мок-методы.
 ```rust
 #[test]
 fn testfunc() -> Result<(), String> {
     let mut logger = SimpleLogger::new("test.log", false, LogLevel::INFO)?;
     logger.log_message(LogLevel::TRACELEVEL1, "Hello world")?;
     logger.log_message(LogLevel::CRITICAL, "Critical message")?;
-    Ok(()) // The compiler automatically drops logger here
+    Ok(()) // Компилятор автоматически удаляет (drops) logger в этом месте
 }
 ```
 ```bash
 cargo test
 ```
 
-## (C)-Rust FFI
-- cbindgen is a great tool for generating header files for exported Rust functions
-    - Can be installed using cargo
+## FFI между C и Rust
+- cbindgen — отличный инструмент для генерации заголовочных файлов для экспортируемых функций Rust.
+    - Ее можно установить с помощью cargo.
 ```bash
 cargo install cbindgen
 cbindgen 
 ```
-- Function and structures can be exported using ```#[no_mangle]``` and ```#[repr(C)]```
-    - We'll assume the common interface pattern passing in a `**` to the actual implementation and returning 0 on success and non-zero on error
-    - **Opaque vs transparent structs**: Our `SimpleLogger` is passed as an *opaque pointer* (`*mut SimpleLogger`) — the C side never accesses its fields, so `#[repr(C)]` is **not** needed. Use `#[repr(C)]` when C code needs to read/write struct fields directly:
+- Функции и структуры могут экспортироваться с помощью атрибутов `#[no_mangle]` и `#[repr(C)]`.
+    - Мы примем стандартный шаблон интерфейса, передавая указатель `**` на саму реализацию и возвращая 0 при успешном завершении и ненулевое значение при ошибке.
+    - **Непрозрачные (opaque) против прозрачных структур**: Наш `SimpleLogger` передается как *непрозрачный указатель* (`*mut SimpleLogger`) — код на C никогда не обращается к его полям напрямую, поэтому `#[repr(C)]` **не** требуется. Используйте `#[repr(C)]`, когда коду на C необходимо читать или записывать поля структуры напрямую:
 
 ```rust
-// Opaque — C only holds a pointer, never inspects fields. No #[repr(C)] needed.
+// Непрозрачная (Opaque) — C только хранит указатель, никогда не считывает поля. #[repr(C)] не требуется.
 struct SimpleLogger { /* Rust-only fields */ }
 
-// Transparent — C reads/writes fields directly. MUST use #[repr(C)].
+// Прозрачная (Transparent) — C считывает/записывает поля напрямую. ОБЯЗАТЕЛЬНО использовать #[repr(C)].
 #[repr(C)]
 pub struct Point {
     pub x: f64,
@@ -187,36 +187,36 @@ uint32_t log_entry(struct SimpleLogger *logger, const char *message);
 uint32_t drop_logger(struct SimpleLogger *logger);
 ```
 
-- Note that we need to a lot of sanity checks
-- We have to explicitly leak memory to prevent Rust from automatically deallocating
+- Обратите внимание, что нам нужно выполнить много проверок на корректность.
+- Мы должны явно вызвать утечку памяти (leak), чтобы предотвратить автоматическое освобождение памяти со стороны Rust.
 ```rust
 #[no_mangle] 
 pub extern "C" fn create_simple_logger(file_name: *const std::os::raw::c_char, out_logger: *mut *mut SimpleLogger) -> u32 {
     use std::ffi::CStr;
-    // Make sure pointer isn't NULL
+    // Убедимся, что указатель не NULL
     if file_name.is_null() || out_logger.is_null() {
         return 1;
     }
-    // Safety: The passed in pointer is either NULL or 0-terminated by contract
+    // Safety: Переданный указатель по контракту является либо NULL, либо оканчивается нулем
     let file_name = unsafe {
         CStr::from_ptr(file_name)
     };
     let file_name = file_name.to_str();
-    // Make sure that file_name doesn't have garbage characters
+    // Убедимся, что file_name не содержит некорректных символов
     if file_name.is_err() {
         return 1;
     }
     let file_name = file_name.unwrap();
-    // Assume some defaults; we'll pass them in real life
+    // Примем некоторые настройки по умолчанию; в реальной жизни мы бы передавали их
     let new_logger = SimpleLogger::new(file_name, true, LogLevel::CRITICAL);
-    // Check that we were able to construct the logger
+    // Проверим, удалось ли нам создать логгер
     if new_logger.is_err() {
         return 1;
     }
     let new_logger = Box::new(new_logger.unwrap());
-    // This prevents the Box from being dropped when if goes out of scope
+    // Это предотвращает удаление Box при выходе из области видимости
     let logger_ptr: *mut SimpleLogger = Box::leak(new_logger);
-    // Safety: logger is non-null and logger_ptr is valid
+    // Safety: logger не равен null и logger_ptr валиден
     unsafe {
         *out_logger = logger_ptr;
     }
@@ -224,7 +224,7 @@ pub extern "C" fn create_simple_logger(file_name: *const std::os::raw::c_char, o
 }
 ```
 
-- We have similar error checks in ```log_entry()```
+- Похожие проверки на ошибки мы делаем в функции `log_entry()`
 ```rust
 #[no_mangle]
 pub extern "C" fn log_entry(logger: *mut SimpleLogger, message: *const std::os::raw::c_char) -> u32 {
@@ -232,16 +232,16 @@ pub extern "C" fn log_entry(logger: *mut SimpleLogger, message: *const std::os::
     if message.is_null() || logger.is_null() {
         return 1;
     }
-    // Safety: message is non-null
+    // Safety: message не равен null
     let message = unsafe {
         CStr::from_ptr(message)
     };
     let message = message.to_str();
-    // Make sure that file_name doesn't have garbage characters
+    // Убедимся, что имя файла не содержит некорректных символов
     if message.is_err() {
         return 1;
     }
-    // Safety: logger is valid pointer previously constructed by create_simple_logger()
+    // Safety: logger — валидный указатель, ранее созданный с помощью create_simple_logger()
     unsafe {
         (*logger).log_message(LogLevel::CRITICAL, message.unwrap()).is_err() as u32
     }
@@ -252,24 +252,24 @@ pub extern "C" fn drop_logger(logger: *mut SimpleLogger) -> u32 {
     if logger.is_null() {
         return 1;
     }
-    // Safety: logger is valid pointer previously constructed by create_simple_logger()
+    // Safety: logger — валидный указатель, ранее созданный с помощью create_simple_logger()
     unsafe {
-        // This constructs a Box<SimpleLogger>, which is dropped when it goes out of scope
+        // Это конструирует Box<SimpleLogger>, который удаляется при выходе из области видимости
         let _ = Box::from_raw(logger);
     }
     0
 }
 ```
 
-- We can test our (C)-FFI using Rust, or by writing a (C)-program
+- Мы можем протестировать наше (C)-FFI с помощью Rust или написав программу на C
 ```rust
 #[test]
 fn test_c_logger() {
-    // The c".." creates a NULL terminated string
+    // Префикс c".." создает строку, оканчивающуюся нулем (null-terminated)
     let file_name = c"test.log".as_ptr() as *const std::os::raw::c_char;
     let mut c_logger: *mut SimpleLogger = std::ptr::null_mut();
     assert_eq!(create_simple_logger(file_name, &mut c_logger), 0);
-    // This is the manual way to create c"..." strings
+    // Это ручной способ создания строк c"..."
     let message = b"message from C\0".as_ptr() as *const std::os::raw::c_char;
     assert_eq!(log_entry(c_logger, message), 0);
     drop_logger(c_logger);
@@ -282,96 +282,96 @@ int main() {
     SimpleLogger *logger = NULL;
     if (create_simple_logger("test.log", &logger) == 0) {
         log_entry(logger, "Hello from C");
-        drop_logger(logger); /*Needed to close handle, etc.*/
+        drop_logger(logger); /*Необходимо для закрытия дескриптора файла и т.д.*/
     } 
     ...
 }
 ```
 
-## Ensuring correctness of unsafe code
-- The TL;DR version is that using ```unsafe``` requires deliberate thought
-    - Always document the safety assumptions made by the code and review it with experts
-    - Use tools like cbindgen, Miri, Valgrind that can help verify correctness
-    - **Never let a panic unwind across an FFI boundary** — this is UB. Use `std::panic::catch_unwind` at FFI entry points, or configure `panic = "abort"` in your profile
-    - If a struct is shared across FFI, mark it `#[repr(C)]` to guarantee C-compatible memory layout
-    - Consult https://doc.rust-lang.org/nomicon/intro.html (the "Rustonomicon" — the dark arts of unsafe Rust)
-    - Seek help of internal experts
+## Обеспечение корректности небезопасного кода
+- Краткий вывод (TL;DR): использование `unsafe` требует осознанного подхода.
+    - Всегда документируйте предположения о безопасности, сделанные в коде, и проверяйте их со специалистами.
+    - Используйте инструменты вроде cbindgen, Miri, Valgrind, которые могут помочь подтвердить корректность.
+    - **Никогда не позволяйте панике раскручиваться через границу FFI** — это приводит к неопределенному поведению (UB). Используйте `std::panic::catch_unwind` на точках входа FFI или настройте `panic = "abort"` в профиле вашего проекта.
+    - Если структура разделяется через FFI, пометьте ее `#[repr(C)]`, чтобы гарантировать C-совместимое расположение данных в памяти.
+    - Изучите https://doc.rust-lang.org/nomicon/intro.html («Rustonomicon» — темные искусства небезопасного Rust).
+    - Пользуйтесь помощью внутренних экспертов.
 
-### Verification tools: Miri vs Valgrind
+### Инструменты верификации: Miri против Valgrind
 
-C++ developers are familiar with Valgrind and sanitizers. Rust has those **plus** Miri, which is far more precise for Rust-specific UB:
+Разработчики C++ знакомы с Valgrind и санитайзерами. В Rust есть всё это **плюс** Miri, который гораздо точнее выявляет UB, специфичное для Rust:
 
-| | **Miri** | **Valgrind** | **C++ sanitizers (ASan/MSan/UBSan)** |
+| | **Miri** | **Valgrind** | **C++ санитайзеры (ASan/MSan/UBSan)** |
 |---|---------|-------------|--------------------------------------|
-| **What it catches** | Rust-specific UB: stacked borrows, invalid `enum` discriminants, uninitialized reads, aliasing violations | Memory leaks, use-after-free, invalid reads/writes, uninitialized memory | Buffer overflow, use-after-free, data races, UB |
-| **How it works** | Interprets MIR (Rust's mid-level IR) — no native execution | Instruments compiled binary at runtime | Compile-time instrumentation |
-| **FFI support** | ❌ Cannot cross FFI boundary (skips C calls) | ✅ Works on any compiled binary, including FFI | ✅ Works if C code also compiled with sanitizers |
-| **Speed** | ~100x slower than native | ~10-50x slower | ~2-5x slower |
-| **When to use** | Pure Rust `unsafe` code, data structure invariants | FFI code, full binary integration tests | C/C++ side of FFI, performance-sensitive testing |
-| **Catches aliasing bugs** | ✅ Stacked Borrows model | ❌ | Partially (TSan for data races) |
+| **Что находит** | Специфичное для Rust UB: модель stacked borrows, недопустимые дискриминанты enum, чтение неинициализированной памяти, нарушения наложения ссылок | Утечки памяти, использование после освобождения (use-after-free), некорректные чтение/запись, неинициализированная память | Переполнение буфера, использование после освобождения, состояние гонки, UB |
+| **Как работает** | Интерпретирует MIR (среднеуровневое промежуточное представление Rust) — без нативного выполнения | Инструментирует скомпилированный бинарный файл во время выполнения | Инструментирование во время компиляции |
+| **Поддержка FFI** | ❌ Не может переходить границу FFI (пропускает вызовы C) | ✅ Работает с любым скомпилированным бинарником, включая FFI | ✅ Работает, если код C также скомпилирован с санитайзерами |
+| **Скорость** | Примерно в 100 раз медленнее нативного | Примерно в 10-50 раз медленнее | Примерно в 2-5 раз медленнее |
+| **Когда использовать** | Чистый небезопасный код Rust, инварианты структур данных | Код FFI, интеграционные тесты всего бинарного файла | Сторона C/C++ в FFI, тестирование критических по производительности мест |
+| **Находит ошибки наложения ссылок (aliasing)** | ✅ Модель Stacked Borrows | ❌ | Частично (TSan для состояний гонки за данные) |
 
-**Recommendation**: Use **both** — Miri for pure Rust unsafe, Valgrind for FFI integration:
+**Рекомендация**: Используйте **оба** инструмента — Miri для чистого небезопасного Rust, Valgrind для интеграции с FFI:
 
-- **Miri** — catches Rust-specific UB that Valgrind cannot see (aliasing violations, invalid enum values, stacked borrows):
-    ```
+- **Miri** — находит специфическое для Rust UB, которое Valgrind не видит (нарушения правил наложения ссылок, невалидные значения enum, нарушения модели stacked borrows):
+    ```bash
     rustup +nightly component add miri
-    cargo +nightly miri test                    # Run all tests under Miri
-    cargo +nightly miri test -- test_name       # Run a specific test
+    cargo +nightly miri test                    # Запуск всех тестов под Miri
+    cargo +nightly miri test -- test_name       # Запуск конкретного теста
     ```
-    > ⚠️ Miri requires nightly and cannot execute FFI calls. Isolate unsafe Rust logic into testable units.
+    > ⚠️ Miri требует nightly-версии компилятора и не может выполнять вызовы FFI. Изолируйте небезопасную логику Rust в отдельные тестируемые модули.
 
-- **Valgrind** — the tool you already know, works on the compiled binary including FFI:
-    ```
+- **Valgrind** — уже знакомый вам инструмент, работает со скомпилированным бинарным файлом, включая FFI:
+    ```bash
     sudo apt install valgrind
     cargo install cargo-valgrind
-    cargo valgrind test                         # Run all tests under Valgrind
+    cargo valgrind test                         # Запуск всех тестов под Valgrind
     ```
-    > Catches leaks in `Box::leak` / `Box::from_raw` patterns common in FFI code.
+    > Помогает находить утечки в паттернах `Box::leak` / `Box::from_raw`, часто встречающихся в коде FFI.
 
-- **cargo-careful** — runs tests with extra runtime checks enabled (between regular tests and Miri):
-    ```
+- **cargo-careful** — запускает тесты с включенными дополнительными проверками во время выполнения (промежуточный вариант между обычными тестами и Miri):
+    ```bash
     cargo install cargo-careful
     cargo +nightly careful test
     ```
 
-## Unsafe Rust summary
-- ```cbindgen``` is a great tool for (C) FFI to Rust
-    - Use ```bindgen``` for FFI-interfaces in the other direction (consult the extensive documentation)
-- **Do not assume that your unsafe code is correct, or that it's fine to use from safe Rust. It's really easy to make mistakes, and even code that seemingly works correctly can be wrong for subtle reasons**
-    - Use tools to verify correctness
-    - If still in doubt, reach out for expert advice
-- Make sure that your ```unsafe``` code has comments with an explicit documentation about assumptions and why it's correct
-    - Callers of ```unsafe``` code should have corresponding comments on safety as well, and observe restrictions
+## Резюме по небезопасному Rust (Unsafe Rust)
+- `cbindgen` — отличный инструмент для реализации C FFI к Rust.
+    - Используйте `bindgen` для FFI-интерфейсов в обратном направлении (обратитесь к его подробной документации).
+- **Не думайте, что ваш небезопасный код корректен или что его можно безопасно использовать из безопасного Rust. Допустить ошибки здесь очень легко, и даже код, который с виду работает правильно, может содержать скрытые проблемы.**
+    - Используйте специальные инструменты для проверки корректности.
+    - Если у вас остались сомнения, обратитесь за советом к экспертам.
+- Обязательно снабжайте код `unsafe` комментариями с явным документированием предположений и объяснением того, почему этот код корректен.
+    - Вызывающие небезопасный код методы также должны иметь соответствующие комментарии о безопасности и соблюдать ограничения.
 
-# Exercise: Writing a safe FFI wrapper
+# Упражнение: Написание безопасной оболочки FFI
 
-🔴 **Challenge** — requires understanding unsafe blocks, raw pointers, and safe API design
+🔴 **Сложная задача** — требует понимания блоков unsafe, сырых указателей и разработки безопасного API
 
-- Write a safe Rust wrapper around an `unsafe` FFI-style function. The exercise simulates calling a C function that writes a formatted string into a caller-provided buffer.
-- **Step 1**: Implement the unsafe function `unsafe_greet` that writes a greeting into a raw `*mut u8` buffer
-- **Step 2**: Write a safe wrapper `safe_greet` that allocates a `Vec<u8>`, calls the unsafe function, and returns a `String`
-- **Step 3**: Add proper `// Safety:` comments to every unsafe block
+- Напишите безопасную оболочку на Rust вокруг небезопасной функции в стиле FFI. Это упражнение имитирует вызов функции C, которая записывает отформатированную строку в предоставленный вызывающей стороной буфер.
+- **Шаг 1**: Реализуйте небезопасную функцию `unsafe_greet`, которая записывает приветствие в сырой буфер `*mut u8`.
+- **Шаг 2**: Напишите безопасную оболочку `safe_greet`, которая выделяет буфер `Vec<u8>`, вызывает небезопасную функцию и возвращает строку `String`.
+- **Шаг 3**: Добавьте корректные комментарии `// Safety:` к каждому блоку `unsafe`.
 
-**Starter code:**
+**Начальный код:**
 ```rust
 use std::fmt::Write as _;
 
-/// Simulates a C function: writes "Hello, <name>!" into buffer.
-/// Returns the number of bytes written (excluding null terminator).
+/// Имитирует функцию C: записывает "Hello, <name>!" в буфер.
+/// Возвращает количество записанных байтов (исключая завершающий нуль).
 /// # Safety
-/// - `buf` must point to at least `buf_len` writable bytes
-/// - `name` must be a valid pointer to a null-terminated C string
+/// - `buf` должен указывать как минимум на `buf_len` байт, доступных для записи
+/// - `name` должен быть валидным указателем на строку C, оканчивающуюся нулем
 unsafe fn unsafe_greet(buf: *mut u8, buf_len: usize, name: *const u8) -> isize {
-    // TODO: Build greeting, copy bytes into buf, return length
-    // Hint: use std::ffi::CStr::from_ptr or iterate bytes manually
+    // TODO: Сформируйте приветствие, скопируйте байты в buf, верните длину
+    // Подсказка: используйте std::ffi::CStr::from_ptr или перебирайте байты вручную
     todo!()
 }
 
-/// Safe wrapper — no unsafe in the public API
+/// Безопасная оболочка — в публичном API нет unsafe
 fn safe_greet(name: &str) -> Result<String, String> {
-    // TODO: Allocate a Vec<u8> buffer, create a null-terminated name,
-    // call unsafe_greet inside an unsafe block with Safety comment,
-    // convert the result back to a String
+    // TODO: Выделите буфер Vec<u8>, создайте имя, оканчивающееся нулем,
+    // вызовите unsafe_greet внутри блока unsafe с комментарием Safety,
+    // преобразуйте результат обратно в String
     todo!()
 }
 
@@ -380,22 +380,22 @@ fn main() {
         Ok(msg) => println!("{msg}"),
         Err(e) => eprintln!("Error: {e}"),
     }
-    // Expected output: Hello, Rustacean!
+    // Ожидаемый вывод: Hello, Rustacean!
 }
 ```
 
-<details><summary>Solution (click to expand)</summary>
+<details><summary>Решение (нажмите, чтобы раскрыть)</summary>
 
 ```rust
 use std::ffi::CStr;
 
-/// Simulates a C function: writes "Hello, <name>!" into buffer.
-/// Returns the number of bytes written, or -1 if buffer too small.
+/// Имитирует функцию C: записывает "Hello, <name>!" в буфер.
+/// Возвращает количество записанных байтов или -1, если буфер слишком мал.
 /// # Safety
-/// - `buf` must point to at least `buf_len` writable bytes
-/// - `name` must be a valid pointer to a null-terminated C string
+/// - `buf` должен указывать как минимум на `buf_len` байт, доступных для записи
+/// - `name` должен быть валидным указателем на строку C, оканчивающуюся нулем
 unsafe fn unsafe_greet(buf: *mut u8, buf_len: usize, name: *const u8) -> isize {
-    // Safety: caller guarantees name is a valid null-terminated string
+    // Safety: вызывающая сторона гарантирует, что name — валидная строка, оканчивающаяся нулем
     let name_cstr = unsafe { CStr::from_ptr(name as *const std::os::raw::c_char) };
     let name_str = match name_cstr.to_str() {
         Ok(s) => s,
@@ -405,20 +405,20 @@ unsafe fn unsafe_greet(buf: *mut u8, buf_len: usize, name: *const u8) -> isize {
     if greeting.len() > buf_len {
         return -1;
     }
-    // Safety: buf points to at least buf_len writable bytes (caller guarantee)
+    // Safety: buf указывает как минимум на buf_len байт, доступных для записи (гарантия вызывающей стороны)
     unsafe {
         std::ptr::copy_nonoverlapping(greeting.as_ptr(), buf, greeting.len());
     }
     greeting.len() as isize
 }
 
-/// Safe wrapper — no unsafe in the public API
+/// Безопасная оболочка — в публичном API нет unsafe
 fn safe_greet(name: &str) -> Result<String, String> {
     let mut buffer = vec![0u8; 256];
-    // Create a null-terminated version of name for the C API
+    // Создаем версию имени, оканчивающуюся нулем, для API на C
     let name_with_null: Vec<u8> = name.bytes().chain(std::iter::once(0)).collect();
 
-    // Safety: buffer has 256 writable bytes, name_with_null is null-terminated
+    // Safety: buffer содержит 256 байт для записи, name_with_null оканчивается нулем
     let bytes_written = unsafe {
         unsafe_greet(buffer.as_mut_ptr(), buffer.len(), name_with_null.as_ptr())
     };
@@ -437,12 +437,10 @@ fn main() {
         Err(e) => eprintln!("Error: {e}"),
     }
 }
-// Output:
+// Вывод:
 // Hello, Rustacean!
 ```
 
 </details>
 
 ----
-
-

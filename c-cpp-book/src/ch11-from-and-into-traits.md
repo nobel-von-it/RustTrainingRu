@@ -1,31 +1,31 @@
-# Rust From and Into traits
+# Трейты From и Into в Rust
 
-> **What you'll learn:** Rust's type conversion traits — `From<T>` and `Into<T>` for infallible conversions, `TryFrom` and `TryInto` for fallible ones. Implement `From` and get `Into` for free. Replaces C++ conversion operators and constructors.
+> **Чему вы научитесь:** Трейты преобразования типов в Rust — `From<T>` и `Into<T>` для безошибочных преобразований, `TryFrom` и `TryInto` для потенциально аварийных. Реализуйте `From` и получите `Into` автоматически. Заменяет операторы преобразования и конструкторы C++.
 
-- ```From``` and ```Into``` are complementary traits to facilitate type conversion
-- Types normally implement the ```From``` trait.```String::from("Rust")``` converts a ```&str``` into a ```String```.
-When ```From<T> for U``` exists, Rust also provides ```Into<U> for T```, so ```let s: String = "Rust".into();``` works too.
+- `From` и `Into` — это взаимодополняющие трейты, облегчающие преобразование типов.
+- Обычно типы реализуют трейт `From`. Например, `String::from("Rust")` преобразует `&str` в `String`.
+Если существует реализация `From<T> for U`, Rust автоматически предоставляет реализацию `Into<U> for T`, поэтому код `let s: String = "Rust".into();` также работает.
 ```rust
 struct Point {x: u32, y: u32}
-// Construct a Point from a tuple
+// Создание точки Point из кортежа
 impl From<(u32, u32)> for Point {
     fn from(xy : (u32, u32)) -> Self {
-        Point {x : xy.0, y: xy.1}       // Construct Point using the tuple elements
+        Point {x : xy.0, y: xy.1}       // Создаем Point, используя элементы кортежа
     }
 }
 fn main() {
     let s = String::from("Rust");
     let x = u32::from(true);
     let p = Point::from((40, 42));
-    // let p : Point = (40,42).into(); // Alternate form of the above
+    // let p : Point = (40,42).into(); // Альтернативная форма для строки выше
     println!("s: {s} x:{x} p.x:{} p.y {}", p.x, p.y);   
 }
 ```
 
-# Exercise: From and Into
-- Implement a ```From``` trait for ```Point``` to convert into a type called ```TransposePoint```. ```TransposePoint``` swaps the ```x``` and ```y``` elements of ```Point```
+# Упражнение: From и Into
+- Реализуйте трейт `From` для структуры `Point`, чтобы преобразовывать ее в тип `TransposePoint`. `TransposePoint` меняет местами поля `x` и `y` структуры `Point`.
 
-<details><summary>Solution (click to expand)</summary>
+<details><summary>Решение (нажмите, чтобы раскрыть)</summary>
 
 ```rust
 struct Point { x: u32, y: u32 }
@@ -42,21 +42,21 @@ fn main() {
     let tp = TransposePoint::from(p);
     println!("Transposed: x={}, y={}", tp.x, tp.y);  // x=20, y=10
 
-    // Using .into() — works automatically when From is implemented
+    // Использование .into() — работает автоматически, когда реализован From
     let p2 = Point { x: 3, y: 7 };
     let tp2: TransposePoint = p2.into();
     println!("Transposed: x={}, y={}", tp2.x, tp2.y);  // x=7, y=3
 }
-// Output:
+// Вывод:
 // Transposed: x=20, y=10
 // Transposed: x=7, y=3
 ```
 
 </details>
 
-# Rust Default trait
-- ```Default``` can be used to implement default values for a type
-    - Types can use the ```Derive``` macro with ```Default``` or provide a custom implementation
+# Трейт Default в Rust
+- Трейт `Default` используется для задания значений по умолчанию для определенного типа.
+    - Типы могут использовать макрос автовывода `Derive` с `Default` или предоставлять собственную реализацию вручную.
 ```rust
 #[derive(Default, Debug)]
 struct Point {x: u32, y: u32}
@@ -68,17 +68,17 @@ impl Default for CustomPoint {
     }
 }
 fn main() {
-    let x = Point::default();   // Creates a Point{0, 0}
+    let x = Point::default();   // Создает Point{0, 0}
     println!("{x:?}");
     let y = CustomPoint::default();
     println!("{y:?}");
 }
 ```
 
-### Rust Default trait
-- ```Default``` trait has several use cases including
-    - Performing a partial copy and using default initialization for rest
-    - Default alternative for ```Option``` types in methods like ```unwrap_or_default()```
+### Трейт Default в Rust
+- Трейт `Default` имеет несколько вариантов применения, включая:
+    - Выполнение частичного копирования и использование инициализации по умолчанию для остальных полей.
+    - Альтернативное значение по умолчанию для типов `Option` в методах вроде `unwrap_or_default()`.
 ```rust
 #[derive(Debug)]
 struct CustomPoint {x: u32, y: u32}
@@ -89,31 +89,29 @@ impl Default for CustomPoint {
 }
 fn main() {
     let x = CustomPoint::default();
-    // Override y, but leave rest of elements as the default
+    // Переопределяем y, но оставляем остальные элементы по умолчанию
     let y = CustomPoint {y: 43, ..CustomPoint::default()};
     println!("{x:?} {y:?}");
     let z : Option<CustomPoint> = None;
-    // Try changing the unwrap_or_default() to unwrap()
+    // Попробуйте изменить unwrap_or_default() на unwrap()
     println!("{:?}", z.unwrap_or_default());
 }
 ```
 
-### Other Rust type conversions
-- Rust doesn't support implicit type conversions and ```as``` can be used for ```explicit``` conversions
-- ```as``` should be sparingly used because it's subject to loss of data by narrowing and so forth. In general, it's preferable to use ```into()``` or ```from()``` where possible
+### Другие преобразования типов в Rust
+- Rust не поддерживает неявные преобразования типов, а оператор `as` может использоваться для *явных* преобразований.
+- Оператор `as` следует использовать с осторожностью, поскольку он подвержен риску потери данных при сужении типов и т. п. В целом, по возможности предпочтительнее использовать методы `into()` или `from()` (если они доступны).
 ```rust
 fn main() {
     let f = 42u8;
-    // let g : u32 = f;    // Will not compile
-    let g = f as u32;      // Ok, but not preferred. Subject to rules around narrowing
-    let g : u32 = f.into(); // Most preferred form; infallible and checked by the compiler
-    // let k : u8 = g.into();  // Fails to compile; narrowing can result in loss of data
+    // let g : u32 = f;    // Не скомпилируется
+    let g = f as u32;      // OK, но не предпочтительно. Подпадает под правила сужения типов
+    let g : u32 = f.into(); // Наиболее предпочтительная форма: безопасная (без паники) и проверяемая компилятором
+    // let k : u8 = g.into();  // Ошибка компиляции: сужение типа может привести к потере данных
     
-    // Attempting a narrowing operation requires use of try_into
+    // Попытка сужения типа требует использования try_into
     if let Ok(k) = TryInto::<u8>::try_into(g) {
         println!("{k}");
     }
 }
 ```
-
-

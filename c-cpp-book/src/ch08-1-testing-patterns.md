@@ -1,12 +1,10 @@
-## Testing Patterns for C++ Programmers
+## Шаблоны тестирования для C++ программистов
 
-> **What you'll learn:** Rust's built-in test framework — `#[test]`, `#[should_panic]`, `Result`-returning tests, builder patterns for test data, trait-based mocking, property testing with `proptest`, snapshot testing with `insta`, and integration test organization. Zero-config testing that replaces Google Test + CMake.
+> **Что вы узнаете:** Встроенную систему тестирования Rust — `#[test]`, `#[should_panic]`, тесты, возвращающие `Result`, шаблоны проектирования (строители/builders) для тестовых данных, имитацию (mocking) на основе типажей, тестирование свойств с `proptest`, моментальные снимки (snapshot testing) с `insta` и структуру интеграционных тестов. Это тестирование без конфигурации, заменяющее связку Google Test + CMake.
 
-C++ testing typically relies on external frameworks (Google Test, Catch2, Boost.Test)
-with complex build integration. Rust's test framework is **built into the language
-and toolchain** — no dependencies, no CMake integration, no test runner configuration.
+Тестирование на C++ обычно полагается на внешние фреймворки (Google Test, Catch2, Boost.Test) со сложной интеграцией в сборку. Система тестирования Rust **встроена непосредственно в язык и инструментарий** — никаких зависимостей, интеграции с CMake или настройки средства запуска тестов.
 
-### Test attributes beyond `#[test]`
+### Атрибуты тестирования помимо `#[test]`
 
 ```rust
 #[cfg(test)]
@@ -18,15 +16,15 @@ mod tests {
         assert_eq!(2 + 2, 4);
     }
 
-    // Expect a panic — equivalent to GTest's EXPECT_DEATH
+    // Ожидание паники — эквивалент EXPECT_DEATH в GTest
     #[test]
     #[should_panic]
     fn out_of_bounds_panics() {
         let v = vec![1, 2, 3];
-        let _ = v[10]; // Panics — test passes
+        let _ = v[10]; // Паникует — тест пройден
     }
 
-    // Expect a panic with a specific message substring
+    // Ожидание паники с определенной подстрокой в сообщении об ошибке
     #[test]
     #[should_panic(expected = "index out of bounds")]
     fn specific_panic_message() {
@@ -34,7 +32,7 @@ mod tests {
         let _ = v[10];
     }
 
-    // Tests that return Result<(), E> — use ? instead of unwrap()
+    // Тесты, которые возвращают Result<(), E> — использование ? вместо unwrap()
     #[test]
     fn test_with_result() -> Result<(), String> {
         let value: u32 = "42".parse().map_err(|e| format!("{e}"))?;
@@ -42,7 +40,7 @@ mod tests {
         Ok(())
     }
 
-    // Ignore slow tests by default — run with `cargo test -- --ignored`
+    // Игнорировать медленные тесты по умолчанию — запускать с `cargo test -- --ignored`
     #[test]
     #[ignore]
     fn slow_integration_test() {
@@ -52,25 +50,24 @@ mod tests {
 ```
 
 ```bash
-cargo test                          # Run all non-ignored tests
-cargo test -- --ignored             # Run only ignored tests
-cargo test -- --include-ignored     # Run ALL tests including ignored
-cargo test test_name                # Run tests matching a name pattern
-cargo test -- --nocapture           # Show println! output during tests
-cargo test -- --test-threads=1      # Run tests serially (for shared state)
+cargo test                          # Запуск всех неигнорируемых тестов
+cargo test -- --ignored             # Запуск только игнорируемых тестов
+cargo test -- --include-ignored     # Запуск ВСЕХ тестов, включая игнорируемые
+cargo test test_name                # Запуск тестов, соответствующих шаблону имени
+cargo test -- --nocapture           # Показывать вывод макроса println! во время тестов
+cargo test -- --test-threads=1      # Запускать тесты последовательно (для общего состояния)
 ```
 
-### Test helpers: builder pattern for test data
+### Вспомогательные элементы: шаблон строитель (builder) для тестовых данных
 
-In C++ you'd use Google Test fixtures (`class MyTest : public ::testing::Test`).
-In Rust, use builder functions or the `Default` trait:
+В C++ вы бы использовали тестовое окружение Google Test (`class MyTest : public ::testing::Test`). В Rust используйте функции-строители или типаж `Default`:
 
 ```rust
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    // Builder function — creates test data with sensible defaults
+    // Функция-строитель — создает тестовые данные с разумными значениями по умолчанию
     fn make_gpu_event(severity: Severity, fault_code: u32) -> DiagEvent {
         DiagEvent {
             source: "accel_diag".to_string(),
@@ -80,7 +77,7 @@ mod tests {
         }
     }
 
-    // Reusable test fixture — a set of pre-built events
+    // Переиспользуемое тестовое окружение — набор предопределенных событий
     fn sample_events() -> Vec<DiagEvent> {
         vec![
             make_gpu_event(Severity::Critical, 67956),
@@ -101,27 +98,26 @@ mod tests {
 }
 ```
 
-### Mocking with traits
+### Имитация (mocking) с помощью типажей
 
-In C++, mocking requires frameworks like Google Mock or manual virtual overrides.
-In Rust, define a trait for the dependency and swap implementations in tests:
+В C++ имитация требует использования фреймворков вроде Google Mock или ручного переопределения виртуальных методов. В Rust вы определяете типаж для зависимости и заменяете реализации в тестах:
 
 ```rust
-// Production trait
+// Промышленный типаж
 trait SensorReader {
     fn read_temperature(&self, sensor_id: u32) -> Result<f64, String>;
 }
 
-// Production implementation
+// Промышленная реализация
 struct HwSensorReader;
 impl SensorReader for HwSensorReader {
     fn read_temperature(&self, sensor_id: u32) -> Result<f64, String> {
-        // Real hardware call...
+        // Реальный вызов оборудования...
         Ok(72.5)
     }
 }
 
-// Test mock — returns predictable values
+// Тестовая имитация — возвращает предсказуемые значения
 #[cfg(test)]
 struct MockSensorReader {
     temperatures: std::collections::HashMap<u32, f64>,
@@ -136,7 +132,7 @@ impl SensorReader for MockSensorReader {
     }
 }
 
-// Function under test — generic over the reader
+// Тестируемая функция — обобщенная по отношению к SensorReader
 fn check_overtemp(reader: &impl SensorReader, ids: &[u32], threshold: f64) -> Vec<u32> {
     ids.iter()
         .filter(|&&id| reader.read_temperature(id).unwrap_or(0.0) > threshold)
@@ -152,7 +148,7 @@ mod tests {
     fn detect_overtemp_sensors() {
         let mut mock = MockSensorReader { temperatures: Default::default() };
         mock.temperatures.insert(0, 72.5);
-        mock.temperatures.insert(1, 91.0);  // Over threshold
+        mock.temperatures.insert(1, 91.0);  // Выше порогового значения
         mock.temperatures.insert(2, 65.0);
 
         let hot = check_overtemp(&mock, &[0, 1, 2], 80.0);
@@ -161,9 +157,9 @@ mod tests {
 }
 ```
 
-### Temporary files and directories in tests
+### Временные файлы и каталоги в тестах
 
-C++ tests often use platform-specific temp directories. Rust has `tempfile`:
+Тесты в C++ часто используют платформозависимые временные папки. В Rust есть пакет `tempfile`:
 
 ```rust
 // Cargo.toml: [dev-dependencies]
@@ -177,22 +173,21 @@ mod tests {
 
     #[test]
     fn parse_config_from_file() -> Result<(), Box<dyn std::error::Error>> {
-        // Create a temp file that's auto-deleted when dropped
+        // Создаем временный файл, который автоматически удаляется при сбросе (drop)
         let mut file = NamedTempFile::new()?;
         writeln!(file, r#"{{"sku": "ServerNode", "level": "Quick"}}"#)?;
 
         let config = load_config(file.path().to_str().unwrap())?;
         assert_eq!(config.sku, "ServerNode");
         Ok(())
-        // file is deleted here — no cleanup code needed
+        // Файл удаляется здесь — код очистки не требуется
     }
 }
 ```
 
-### Property-based testing with `proptest`
+### Тестирование на основе свойств с `proptest`
 
-Instead of writing specific test cases, describe **properties** that should hold
-for all inputs. `proptest` generates random inputs and finds minimal failing cases:
+Вместо написания конкретных тестовых случаев опишите **свойства**, которые должны сохраняться для любых входных данных. Пакет `proptest` генерирует случайные входные данные и находит минимально воспроизводимый случай сбоя:
 
 ```rust
 // Cargo.toml: [dev-dependencies]
@@ -222,10 +217,9 @@ mod tests {
 }
 ```
 
-### Snapshot testing with `insta`
+### Снимок-тестирование (Snapshot testing) с помощью `insta`
 
-For tests that produce complex output (JSON, formatted strings), `insta` auto-generates
-and manages reference snapshots:
+Для тестов, которые производят сложный вывод (JSON, форматированные строки), `insta` автоматически генерирует снимки (snapshots) и управляет ими:
 
 ```rust
 // Cargo.toml: [dev-dependencies]
@@ -242,55 +236,55 @@ mod tests {
             component: "GPU".to_string(),
             message: "ECC error detected".to_string(),
         };
-        // First run: creates a snapshot file in tests/snapshots/
-        // Subsequent runs: compares against the saved snapshot
+        // Первый запуск: создает файл снимка в каталоге tests/snapshots/
+        // Последующие запуски: сравнивает вывод с сохраненным снимком
         assert_json_snapshot!(entry);
     }
 }
 ```
 
 ```bash
-cargo insta test              # Run tests and review new/changed snapshots
-cargo insta review            # Interactive review of snapshot changes
+cargo insta test              # Запуск тестов и проверка новых/изменившихся снимков
+cargo insta review            # Интерактивный просмотр изменений снимков
 ```
 
-### C++ vs Rust testing comparison
+### Сравнение тестирования в C++ и Rust
 
-| **C++ (Google Test)** | **Rust** | **Notes** |
+| **C++ (Google Test)** | **Rust** | **Примечания** |
 |----------------------|---------|----------|
-| `TEST(Suite, Name) { }` | `#[test] fn name() { }` | No suite/class hierarchy needed |
-| `ASSERT_EQ(a, b)` | `assert_eq!(a, b)` | Built-in macro, no framework needed |
-| `ASSERT_NEAR(a, b, eps)` | `assert!((a - b).abs() < eps)` | Or use `approx` crate |
-| `EXPECT_THROW(expr, type)` | `#[should_panic(expected = "...")]` | Or `catch_unwind` for fine control |
+| `TEST(Suite, Name) { }` | `#[test] fn name() { }` | Иерархия наборов/классов не требуется |
+| `ASSERT_EQ(a, b)` | `assert_eq!(a, b)` | Встроенный макрос, фреймворк не требуется |
+| `ASSERT_NEAR(a, b, eps)` | `assert!((a - b).abs() < eps)` | Или используйте пакет `approx` |
+| `EXPECT_THROW(expr, type)` | `#[should_panic(expected = "...")]` | Или `catch_unwind` для более тонкого контроля |
 | `EXPECT_DEATH(expr, "msg")` | `#[should_panic(expected = "msg")]` | |
-| `class Fixture : public ::testing::Test` | Builder functions + `Default` | No inheritance needed |
-| Google Mock `MOCK_METHOD` | Trait + test impl | More explicit, no macro magic |
-| `INSTANTIATE_TEST_SUITE_P` (parameterized) | `proptest!` or macro-generated tests | |
-| `SetUp()` / `TearDown()` | RAII via `Drop` — cleanup is automatic | Variables dropped at end of test |
-| Separate test binary + CMake | `cargo test` — zero config | |
+| `class Fixture : public ::testing::Test` | builder-функции + `Default` | Наследование не требуется |
+| Google Mock `MOCK_METHOD` | Типаж + реализация для тестов | Более явно, без магии макросов |
+| `INSTANTIATE_TEST_SUITE_P` (параметризованные) | `proptest!` или сгенерированные макросом тесты | |
+| `SetUp()` / `TearDown()` | RAII через `Drop` — очистка автоматическая | Переменные удаляются в конце теста |
+| Отдельный тестовый бинарник + CMake | `cargo test` — нулевая конфигурация | |
 | `ctest --output-on-failure` | `cargo test -- --nocapture` | |
 
 ----
 
-### Integration tests: the `tests/` directory
+### Интеграционные тесты: каталог `tests/`
 
-Unit tests live inside `#[cfg(test)]` modules alongside your code. **Integration tests** live in a separate `tests/` directory at the crate root and test your library's public API as an external consumer would:
+Модульные тесты живут внутри модулей с атрибутом `#[cfg(test)]` рядом с вашим кодом. **Интеграционные тесты** живут в отдельном каталоге `tests/` в корне пакета и проверяют только публичный API вашей библиотеки с точки зрения внешнего потребителя:
 
 ```
 my_crate/
 ├── src/
-│   └── lib.rs          # Your library code
+│   └── lib.rs          # Код вашей библиотеки
 ├── tests/
-│   ├── smoke.rs        # Each .rs file is a separate test binary
+│   ├── smoke.rs        # Каждый файл .rs представляет собой отдельный тестовый бинарный файл
 │   ├── regression.rs
 │   └── common/
-│       └── mod.rs      # Shared test helpers (NOT a test itself)
+│       └── mod.rs      # Общие тестовые помощники (сами по себе не являются тестом)
 └── Cargo.toml
 ```
 
 ```rust
-// tests/smoke.rs — tests your crate as an external user would
-use my_crate::DiagEngine;  // Only public API is accessible
+// tests/smoke.rs — тестирует ваш пакет с точки зрения внешнего пользователя
+use my_crate::DiagEngine;  // Доступен только публичный API
 
 #[test]
 fn engine_starts_successfully() {
@@ -306,7 +300,7 @@ fn engine_rejects_invalid_config() {
 ```
 
 ```rust
-// tests/common/mod.rs — shared helpers, NOT compiled as a test binary
+// tests/common/mod.rs — общие помощники, НЕ компилируемые как тестовый бинарный файл
 pub fn setup_test_environment() -> tempfile::TempDir {
     let dir = tempfile::tempdir().unwrap();
     std::fs::write(dir.path().join("config.json"), r#"{"log_level": "debug"}"#).unwrap();
@@ -315,7 +309,7 @@ pub fn setup_test_environment() -> tempfile::TempDir {
 ```
 
 ```rust
-// tests/regression.rs — can use shared helpers
+// tests/regression.rs — может использовать общие помощники
 mod common;
 
 #[test]
@@ -328,16 +322,14 @@ fn regression_issue_42() {
 }
 ```
 
-**Running integration tests:**
+**Запуск интеграционных тестов:**
 ```bash
-cargo test                          # Runs unit AND integration tests
-cargo test --test smoke             # Run only tests/smoke.rs
-cargo test --test regression        # Run only tests/regression.rs
-cargo test --lib                    # Run ONLY unit tests (skip integration)
+cargo test                          # Запускает модульные И интеграционные тесты
+cargo test --test smoke             # Запуск только тестов из tests/smoke.rs
+cargo test --test regression        # Запуск только тестов из tests/regression.rs
+cargo test --lib                    # Запуск ТОЛЬКО модульных тестов (пропуская интеграционные)
 ```
 
-> **Key difference from unit tests**: Integration tests cannot access private functions or `pub(crate)` items. This forces you to verify that your public API is sufficient — a valuable design signal. In C++ terms, it's like testing against only the public header with no `friend` access.
+> **Ключевое отличие от модульных тестов**: интеграционные тесты не могут получить доступ к приватным функциям или элементам с видимостью `pub(crate)`. Это заставляет вас убедиться, что вашего публичного API действительно достаточно для использования библиотеки. В терминах C++ это похоже на тестирование исключительно с подключением публичного заголовка без доступа через ключевое слово `friend`.
 
 ----
-
-

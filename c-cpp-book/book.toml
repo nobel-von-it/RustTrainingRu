@@ -1,7 +1,7 @@
 [book]
-title = "Rust for C/C++ Programmers"
+title = "Rust для C/C++ программистов"
 authors = ["Rust Training Team"]
-language = "en"
+language = "ru"
 src = "src"
 
 [build]

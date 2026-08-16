@@ -1,12 +1,12 @@
-## Collapsing assignment pyramids with closures
+## Как избавляться от пирамид присваиваний с помощью замыканий
 
-> **What you'll learn:** How Rust's expression-based syntax and closures flatten deeply-nested C++ `if/else` validation chains into clean, linear code.
+> **Чему вы научитесь:** Как синтаксис Rust, основанный на выражениях (expression-based), и замыкания позволяют превращать глубоко вложенные цепочки валидации `if/else` из C++ в чистый, линейный код.
 
-- C++ often requires multi-block `if/else` chains to assign variables, especially when validation or fallback logic is involved. Rust's expression-based syntax and closures collapse these into flat, linear code.
+- В C++ для присваивания значений переменным часто требуются многоблочные конструкции `if/else`, особенно когда задействована логика валидации или резервных вариантов (fallback). Синтаксис Rust, основанный на выражениях, и замыкания позволяют превратить их в плоский, линейный код.
 
-### Pattern 1: Tuple assignment with `if` expression
+### Шаблон 1: присваивание кортежа с помощью выражения `if`
 ```cpp
-// C++ — three variables set across a multi-block if/else chain
+// C++ — три переменные инициализируются в многоблочной цепочке if/else
 uint32_t fault_code;
 const char* der_marker;
 const char* action;
@@ -20,8 +20,8 @@ if (is_c44ad) {
 ```
 
 ```rust
-// Rust equivalent:accel_fieldiag.rs
-// Single expression assigns all three at once:
+// Эквивалент в Rust: accel_fieldiag.rs
+// Одиночное выражение инициализирует все три переменные одновременно:
 let (fault_code, der_marker, recommended_action) = if is_c44ad {
     (32709u32, "CSI_WARN", "No action")
 } else if error.is_hardware_error() {
@@ -31,9 +31,9 @@ let (fault_code, der_marker, recommended_action) = if is_c44ad {
 };
 ```
 
-### Pattern 2: IIFE (Immediately Invoked Function Expression) for fallible chains
+### Шаблон 2: IIFE (Immediately Invoked Function Expression) для цепочек с возможностью ошибки
 ```cpp
-// C++ — pyramid of doom for JSON navigation
+// C++ — пирамида вложенности (pyramid of doom) при навигации по JSON
 std::string get_part_number(const nlohmann::json& root) {
     if (root.contains("SystemInfo")) {
         auto& sys = root["SystemInfo"];
@@ -49,8 +49,8 @@ std::string get_part_number(const nlohmann::json& root) {
 ```
 
 ```rust
-// Rust equivalent:framework.rs
-// Closure + ? operator collapses the pyramid into linear code:
+// Эквивалент в Rust: framework.rs
+// Замыкание + оператор ? сворачивают пирамиду в линейный код:
 let part_number = (|| -> Option<String> {
     let path = self.args.sysinfo.as_ref()?;
     let content = std::fs::read_to_string(path).ok()?;
@@ -64,15 +64,15 @@ let part_number = (|| -> Option<String> {
 })()
 .unwrap_or_else(|| "UNKNOWN".to_string());
 ```
-The closure creates an `Option<String>` scope where `?` bails early at any step. The `.unwrap_or_else()` provides the fallback once, at the end.
+Замыкание создает область видимости `Option<String>`, в которой оператор `?` осуществляет досрочный выход при неудаче на любом шаге. Метод `.unwrap_or_else()` предоставляет резервное значение один раз, в самом конце.
 
-### Pattern 3: Iterator chain replacing manual loop + push_back
+### Шаблон 3: цепочка итераторов взамен ручного цикла с push_back
 ```cpp
-// C++ — manual loop with intermediate variables
+// C++ — ручной цикл с промежуточными переменными
 std::vector<std::tuple<std::vector<std::string>, std::string, std::string>> gpu_info;
 for (const auto& [key, info] : gpu_pcie_map) {
     std::vector<std::string> bdfs;
-    // ... parse bdf_path into bdfs
+    // ... парсинг bdf_path в bdfs
     std::string serial = info.serial_number.value_or("UNKNOWN");
     std::string model = info.model_number.value_or(model_name);
     gpu_info.push_back({bdfs, serial, model});
@@ -80,8 +80,8 @@ for (const auto& [key, info] : gpu_pcie_map) {
 ```
 
 ```rust
-// Rust equivalent:peripherals.rs
-// Single chain: values() → map → collect
+// Эквивалент в Rust: peripherals.rs
+// Единая цепочка: values() → map → collect
 let gpu_info: Vec<(Vec<String>, String, String, String)> = self
     .gpu_pcie_map
     .values()
@@ -102,9 +102,8 @@ let gpu_info: Vec<(Vec<String>, String, String, String)> = self
     .collect();
 ```
 
-### Pattern 4: `.filter().collect()` replacing loop + `if (condition) continue`
+### Шаблон 4: `.filter().collect()` взамен цикла с `if (condition) continue`
 ```cpp
-// C++
 std::vector<TestResult*> failures;
 for (auto& t : test_results) {
     if (!t.is_pass()) {
@@ -114,37 +113,37 @@ for (auto& t : test_results) {
 ```
 
 ```rust
-// Rust — from accel_diag/src/healthcheck.rs
+// Rust — из accel_diag/src/healthcheck.rs
 pub fn failed_tests(&self) -> Vec<&TestResult> {
     self.test_results.iter().filter(|t| !t.is_pass()).collect()
 }
 ```
 
-### Summary: When to use each pattern
-| **C++ Pattern** | **Rust Replacement** | **Key Benefit** |
+### Резюме: когда использовать каждый шаблон
+| **Шаблон в C++** | **Аналог в Rust** | **Ключевое преимущество** |
 |----------------|---------------------|-----------------|
-| Multi-block variable assignment | `let (a, b) = if ... { } else { };` | All variables bound atomically |
-| Nested `if (contains)` pyramid | IIFE closure with `?` operator | Linear, flat, early-exit |
-| `for` loop + `push_back` | `.iter().map(\|\|).collect()` | No intermediate mut Vec |
-| `for` + `if (cond) continue` | `.iter().filter(\|\|).collect()` | Declarative intent |
-| `for` + `if + break` (find first) | `.iter().find_map(\|\|)` | Search + transform in one pass |
+| Многоблочное присваивание переменных | `let (a, b) = if ... { } else { };` | Все переменные связываются атомарно |
+| Вложенная пирамида `if (contains)` | IIFE-замыкание с оператором `?` | Линейный плоский код, ранний выход |
+| Цикл `for` + `push_back` | `.iter().map(\|\|).collect()` | Нет необходимости во временном мутабельном Vec |
+| Цикл `for` + `if (cond) continue` | `.iter().filter(\|\|).collect()` | Декларативное выражение намерений |
+| Цикл `for` + `if + break` (поиск первого) | `.iter().find_map(\|\|)` | Поиск + преобразование за один проход |
 
 ----
 
-# Capstone Exercise: Diagnostic Event Pipeline
+# Комплексное упражнение: конвейер диагностических событий
 
-🔴 **Challenge** — integrative exercise combining enums, traits, iterators, error handling, and generics
+🔴 **Испытание** — комплексное упражнение, объединяющее перечисления, типажи, итераторы, обработку ошибок и обобщения (generics).
 
-This integrative exercise brings together enums, traits, iterators, error handling, and generics. You'll build a simplified diagnostic event processing pipeline similar to patterns used in production Rust code.
+Это комплексное упражнение объединяет перечисления, типажи, итераторы, обработку ошибок и обобщения. Вы построите упрощенный конвейер обработки диагностических событий, похожий на те паттерны, которые используются в продакшн-коде на Rust.
 
-**Requirements:**
-1. Define an `enum Severity { Info, Warning, Critical }` with `Display`, and a `struct DiagEvent` containing `source: String`, `severity: Severity`, `message: String`, and `fault_code: u32`
-2. Define a `trait EventFilter` with a method `fn should_include(&self, event: &DiagEvent) -> bool`
-3. Implement two filters: `SeverityFilter` (only events >= a given severity) and `SourceFilter` (only events from a specific source string)
-4. Write a function `fn process_events(events: &[DiagEvent], filters: &[&dyn EventFilter]) -> Vec<String>` that returns formatted report lines for events that pass **all** filters
-5. Write a `fn parse_event(line: &str) -> Result<DiagEvent, String>` that parses lines of the form `"source:severity:fault_code:message"` (return `Err` for bad input)
+**Требования:**
+1. Определить `enum Severity { Info, Warning, Critical }` с реализацией `Display`, и `struct DiagEvent`, содержащую `source: String`, `severity: Severity`, `message: String` и `fault_code: u32`.
+2. Определить `trait EventFilter` с методом `fn should_include(&self, event: &DiagEvent) -> bool`.
+3. Реализовать два фильтра: `SeverityFilter` (только события с важностью >= заданной) и `SourceFilter` (только события от источника с заданным именем).
+4. Написать функцию `fn process_events(events: &[DiagEvent], filters: &[&dyn EventFilter]) -> Vec<String>`, которая возвращает отформатированные строки отчета для событий, прошедших **все** фильтры.
+5. Написать функцию `fn parse_event(line: &str) -> Result<DiagEvent, String>`, которая разбирает строки формата `"source:severity:fault_code:message"` (возвращает `Err` при некорректном вводе).
 
-**Starter code:**
+**Начальный код:**
 ```rust
 use std::fmt;
 
@@ -176,22 +175,22 @@ trait EventFilter {
 struct SeverityFilter {
     min_severity: Severity,
 }
-// TODO: impl EventFilter for SeverityFilter
+// TODO: реализовать EventFilter для SeverityFilter
 
 struct SourceFilter {
     source: String,
 }
-// TODO: impl EventFilter for SourceFilter
+// TODO: реализовать EventFilter для SourceFilter
 
 fn process_events(events: &[DiagEvent], filters: &[&dyn EventFilter]) -> Vec<String> {
-    // TODO: Filter events that pass ALL filters, format as
+    // TODO: Отфильтровать события, прошедшие ВСЕ фильтры, и отформатировать как
     // "[SEVERITY] source (FC:fault_code): message"
     todo!()
 }
 
 fn parse_event(line: &str) -> Result<DiagEvent, String> {
-    // Parse "source:severity:fault_code:message"
-    // Return Err for invalid input
+    // Разобрать "source:severity:fault_code:message"
+    // Вернуть Err при некорректном вводе
     todo!()
 }
 
@@ -204,15 +203,15 @@ fn main() {
         "accel_diag:Warning:32710:PCIe link width reduced",
     ];
 
-    // Parse all lines, collect successes and report errors
+    // Разобрать все строки, собрать успешные результаты и вывести ошибки
     let events: Vec<DiagEvent> = raw_lines.iter()
         .filter_map(|line| match parse_event(line) {
             Ok(e) => Some(e),
-            Err(e) => { eprintln!("Parse error: {e}"); None }
+            Err(e) => { eprintln!("Ошибка парсинга: {e}"); None }
         })
         .collect();
 
-    // Apply filters: only Critical+Warning events from accel_diag
+    // Применить фильтры: только события Critical+Warning от accel_diag
     let sev_filter = SeverityFilter { min_severity: Severity::Warning };
     let src_filter = SourceFilter { source: "accel_diag".to_string() };
     let filters: Vec<&dyn EventFilter> = vec![&sev_filter, &src_filter];
@@ -225,7 +224,7 @@ fn main() {
 }
 ```
 
-<details><summary>Solution (click to expand)</summary>
+<details><summary>Решение (нажмите, чтобы раскрыть)</summary>
 
 ```rust
 use std::fmt;
@@ -253,7 +252,7 @@ impl Severity {
             "Info" => Ok(Severity::Info),
             "Warning" => Ok(Severity::Warning),
             "Critical" => Ok(Severity::Critical),
-            other => Err(format!("Unknown severity: {other}")),
+            other => Err(format!("Неизвестная важность: {other}")),
         }
     }
 }
@@ -300,10 +299,10 @@ fn process_events(events: &[DiagEvent], filters: &[&dyn EventFilter]) -> Vec<Str
 fn parse_event(line: &str) -> Result<DiagEvent, String> {
     let parts: Vec<&str> = line.splitn(4, ':').collect();
     if parts.len() != 4 {
-        return Err(format!("Expected 4 colon-separated fields, got {}", parts.len()));
+        return Err(format!("Ожидалось 4 поля, разделенных двоеточием, получено {}", parts.len()));
     }
     let fault_code = parts[2].parse::<u32>()
-        .map_err(|e| format!("Invalid fault code '{}': {e}", parts[2]))?;
+        .map_err(|e| format!("Некорректный код ошибки '{}': {e}", parts[2]))?;
     Ok(DiagEvent {
         source: parts[0].to_string(),
         severity: Severity::from_str(parts[1])?,
@@ -324,7 +323,7 @@ fn main() {
     let events: Vec<DiagEvent> = raw_lines.iter()
         .filter_map(|line| match parse_event(line) {
             Ok(e) => Some(e),
-            Err(e) => { eprintln!("Parse error: {e}"); None }
+            Err(e) => { eprintln!("Ошибка парсинга: {e}"); None }
         })
         .collect();
 
@@ -338,7 +337,7 @@ fn main() {
     }
     println!("--- {} event(s) matched ---", report.len());
 }
-// Output:
+// Вывод:
 // [CRITICAL] accel_diag (FC:67956): ECC uncorrectable error detected
 // [WARNING] accel_diag (FC:32710): PCIe link width reduced
 // --- 2 event(s) matched ---
@@ -347,4 +346,3 @@ fn main() {
 </details>
 
 ----
-

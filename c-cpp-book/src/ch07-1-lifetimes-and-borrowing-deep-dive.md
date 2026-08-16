@@ -1,9 +1,9 @@
-# Rust lifetime and borrowing
+# Времена жизни и заимствование в Rust
 
-> **What you'll learn:** How Rust's lifetime system ensures references never dangle — from implicit lifetimes through explicit annotations to the three elision rules that make most code annotation-free. Understanding lifetimes here is essential before moving on to smart pointers in the next section.
+> **Что вы узнаете:** Как система времен жизни (lifetime) в Rust гарантирует, что ссылки никогда не станут висячими — от неявных времен жизни до явных аннотаций и трех правил сокращения (elision rules), благодаря которым большинство кода обходится без аннотаций. Понимание времен жизни здесь имеет важное значение перед переходом к умным указателям в следующем разделе.
 
-- Rust enforces a single mutable reference and any number of immutable references
-    - The lifetime of any reference must be at least as long as the original owning lifetime. These are implicit lifetimes and are inferred by the compiler (see https://doc.rust-lang.org/nomicon/lifetime-elision.html)
+- Rust требует соблюдения правила: одна изменяемая ссылка или любое количество неизменяемых ссылок.
+    - Время жизни любой ссылки должно быть не меньше времени жизни исходного владельца. Это неявные времена жизни, которые выводятся компилятором автоматически (подробнее см. https://doc.rust-lang.org/nomicon/lifetime-elision.html).
 ```rust
 fn borrow_mut(x: &mut u32) {
     *x = 43;
@@ -12,34 +12,34 @@ fn main() {
     let mut x = 42;
     let y = &mut x;
     borrow_mut(y);
-    let _z = &x; // Permitted because the compiler knows y isn't subsequently used
-    //println!("{y}"); // Will not compile if this is uncommented
-    borrow_mut(&mut x); // Permitted because _z isn't used 
-    let z = &x; // Ok -- mutable borrow of x ended after borrow_mut() returned
+    let _z = &x; // Разрешено, так как компилятор знает, что y далее не используется
+    //println!("{y}"); // Не скомпилируется, если раскомментировать эту строку
+    borrow_mut(&mut x); // Разрешено, так как _z не используется 
+    let z = &x; // Хорошо — изменяемое заимствование x завершилось после возврата из borrow_mut()
     println!("{z}");
 }
 ```
 
-# Rust lifetime annotations
-- Explicit lifetime annotations are needed when dealing with multiple lifetimes
-    - Lifetimes are denoted with `'` and can be any identifier (`'a`, `'b`, `'static`, etc.)
-    - The compiler needs help when it can't figure out how long references should live
-- **Common scenario**: Function returns a reference, but which input does it come from?
+# Аннотации времен жизни в Rust
+- Явные аннотации времен жизни требуются при работе с несколькими временами жизни.
+    - Времена жизни обозначаются символом `'` и могут содержать любой идентификатор (`'a`, `'b`, `'static` и т. д.).
+    - Помощь компилятору нужна тогда, когда он не может определить, как долго должны жить ссылки.
+- **Типичный сценарий**: функция возвращает ссылку, но от какого из входных параметров она получена?
 ```rust
 #[derive(Debug)]
 struct Point {x: u32, y: u32}
 
-// Without lifetime annotation, this won't compile:
+// Без аннотации времени жизни это не скомпилируется:
 // fn left_or_right(pick_left: bool, left: &Point, right: &Point) -> &Point
 
-// With lifetime annotation - all references share the same lifetime 'a
+// С аннотацией времени жизни — все ссылки разделяют одно и то же время жизни 'a
 fn left_or_right<'a>(pick_left: bool, left: &'a Point, right: &'a Point) -> &'a Point {
     if pick_left { left } else { right }
 }
 
-// More complex: different lifetimes for inputs
+// Более сложный случай: разные времена жизни для входных параметров
 fn get_x_coordinate<'a, 'b>(p1: &'a Point, _p2: &'b Point) -> &'a u32 {
-    &p1.x  // Return value lifetime tied to p1, not p2
+    &p1.x  // Время жизни возвращаемого значения связано с p1, а не с p2
 }
 
 fn main() {
@@ -48,16 +48,16 @@ fn main() {
     {
         let p2 = Point {x: 42, y: 50};
         result = left_or_right(true, &p1, &p2);
-        // This works because we use result before p2 goes out of scope
+        // Это работает, так как мы используем result до того, как p2 выйдет из области видимости
         println!("Selected: {result:?}");
     }
-    // This would NOT work - result references p2 which is now gone:
+    // Это НЕ сработает — result ссылается на p2, которой больше нет:
     // println!("After scope: {result:?}");
 }
 ```
 
-# Rust lifetime annotations
-- Lifetime annotations are also needed for references in data structures
+# Аннотации времен жизни в Rust
+- Аннотации времен жизни также необходимы для ссылок внутри структур данных.
 ```rust
 use std::collections::HashMap;
 #[derive(Debug)]
@@ -73,30 +73,30 @@ fn main() {
     m.map.insert(1, &p1);
     {
         let p3 = Point{x: 60, y:70};
-        //m.map.insert(3, &p3); // Will not compile
-        // p3 is dropped here, but m will outlive
+        //m.map.insert(3, &p3); // Не скомпилируется
+        // p3 удаляется здесь, но m будет жить дольше
     }
     for (k, v) in m.map {
         println!("{v:?}");
     }
-    // m is dropped here
-    // p1 and p are dropped here in that order
+    // m удаляется здесь
+    // p1 и p удаляются здесь именно в таком порядке
 } 
 ```
 
-# Exercise: First word with lifetimes
+# Упражнение: Первое слово с использованием времен жизни
 
-🟢 **Starter** — practice lifetime elision in action
+🟢 **Начальный уровень** — практика сокращения времен жизни в действии
 
-Write a function `fn first_word(s: &str) -> &str` that returns the first whitespace-delimited word from a string. Think about why this compiles without explicit lifetime annotations (hint: elision rule #1 and #2).
+Напишите функцию `fn first_word(s: &str) -> &str`, которая возвращает первое слово из строки (разделенное пробелами). Подумайте, почему этот код компилируется без явных аннотаций времен жизни (подсказка: правила сокращения времен жизни №1 и №2).
 
-<details><summary>Solution (click to expand)</summary>
+<details><summary>Решение (нажмите, чтобы развернуть)</summary>
 
 ```rust
 fn first_word(s: &str) -> &str {
-    // The compiler applies elision rules:
-    // Rule 1: input &str gets lifetime 'a → fn first_word(s: &'a str) -> &str
-    // Rule 2: single input lifetime → output gets same → fn first_word(s: &'a str) -> &'a str
+    // Компилятор применяет правила сокращения времен жизни (elision rules):
+    // Правило 1: входной &str получает время жизни 'a → fn first_word(s: &'a str) -> &str
+    // Правило 2: один входной параметр → выход получает то же время жизни → fn first_word(s: &'a str) -> &'a str
     match s.find(' ') {
         Some(pos) => &s[..pos],
         None => s,
@@ -115,14 +115,14 @@ fn main() {
 
 </details>
 
-# Exercise: Slice storage with lifetimes
+# Упражнение: Хранение срезов с временами жизни
 
-🟡 **Intermediate** — your first encounter with lifetime annotations
-- Create a structure that stores references to the slice of a ```&str```
-    - Create a long ```&str``` and store references slices from it inside the structure
-    - Write a function that accepts the structure and returns the contained slice
+🟡 **Средний уровень** — ваше первое знакомство с аннотациями времен жизни
+- Создайте структуру, которая хранит ссылки на срезы (slices) ```&str```.
+    - Создайте длинную строку ```&str``` и сохраните ссылки на ее срезы внутри структуры.
+    - Напишите функцию, которая принимает структуру и возвращает содержащийся в ней срез.
 ```rust
-// TODO: Create a structure to store a reference to a slice
+// TODO: Создайте структуру для хранения ссылки на срез
 struct SliceStore {
 
 }
@@ -135,7 +135,7 @@ fn main() {
 }
 ```
 
-<details><summary>Solution (click to expand)</summary>
+<details><summary>Решение (нажмите, чтобы развернуть)</summary>
 
 ```rust
 struct SliceStore<'a> {
@@ -159,7 +159,7 @@ fn main() {
     println!("store1: {}", store1.get_slice());
     println!("store2: {}", store2.get_slice());
 }
-// Output:
+// Вывод:
 // store1: This
 // store2: is
 ```
@@ -168,154 +168,147 @@ fn main() {
 
 ---
 
-## Lifetime Elision Rules Deep Dive
+## Глубокое погружение в правила сокращения времен жизни
 
-C programmers often ask: "If lifetimes are so important, why don't most Rust functions
-have `'a` annotations?" The answer is **lifetime elision** — the compiler applies three
-deterministic rules to infer lifetimes automatically.
+Программисты на C часто спрашивают: «Если времена жизни так важны, почему в большинстве функций на Rust нет аннотаций `'a`?» Ответ кроется в **сокращении времен жизни (lifetime elision)** — компилятор применяет три детерминированных правила для автоматического вывода времен жизни.
 
-### The Three Elision Rules
+### Три правила сокращения
 
-The Rust compiler applies these rules **in order** to function signatures. If all output
-lifetimes are determined after applying the rules, no annotations are needed.
+Компилятор Rust применяет эти правила **по порядку** к сигнатурам функций. Если после применения правил все выходные времена жизни определены, аннотации не требуются.
 
 ```mermaid
 flowchart TD
-    A["Function signature<br/>with references"] --> R1
-    R1["Rule 1: Each input<br/>reference gets its own<br/>lifetime<br/><br/>fn f(&amp;str, &amp;str)<br/>→ fn f&lt;'a,'b&gt;(&amp;'a str,<br/>&amp;'b str)"]
+    A["Сигнатура функции<br/>со ссылками"] --> R1
+    R1["Правило 1: Каждый входной<br/>параметр-ссылка получает<br/>своё собственное время жизни<br/><br/>fn f(&amp;str, &amp;str)<br/>→ fn f&lt;'a,'b&gt;(&amp;'a str,<br/>&amp;'b str)"]
     R1 --> R2
-    R2["Rule 2: If exactly ONE<br/>input lifetime, assign it<br/>to ALL outputs<br/><br/>fn f(&amp;str) → &amp;str<br/>→ fn f&lt;'a&gt;(&amp;'a str)<br/>→ &amp;'a str"]
+    R2["Правило 2: Если есть ровно ОДИН<br/>входной параметр-ссылка, его время жизни<br/>присваивается ВСЕМ возвращаемым ссылкам<br/><br/>fn f(&amp;str) → &amp;str<br/>→ fn f&lt;'a&gt;(&amp;'a str)<br/>→ &amp;'a str"]
     R2 --> R3
-    R3["Rule 3: If one input is<br/>&amp;self or &amp;mut self,<br/>assign its lifetime to<br/>ALL outputs<br/><br/>fn f(&amp;self, &amp;str) → &amp;str<br/>→ fn f&lt;'a&gt;(&amp;'a self, &amp;str)<br/>→ &amp;'a str"]
-    R3 --> CHECK{{"All output<br/>lifetimes<br/>determined?"}}
-    CHECK -->|Yes| OK["✅ No annotations<br/>needed"]
-    CHECK -->|No| ERR["❌ Compile error:<br/>must annotate<br/>manually"]
+    R3["Правило 3: Если один из входов —<br/>&amp;self или &amp;mut self,<br/>его время жизни присваивается<br/>ВСЕМ возвращаемым ссылкам<br/><br/>fn f(&amp;self, &amp;str) → &amp;str<br/>→ fn f&lt;'a&gt;(&amp;'a self, &amp;str)<br/>→ &amp;'a str"]
+    R3 --> CHECK{{"Все времена жизни<br/>возвращаемых значений<br/>определены?"}}
+    CHECK -->|Да| OK["✅ Аннотации<br/>не требуются"]
+    CHECK -->|Нет| ERR["❌ Ошибка компиляции:<br/>необходимо указать<br/>вручную"]
     
     style OK fill:#91e5a3,color:#000
     style ERR fill:#ff6b6b,color:#000
 ```
 
-### Rule-by-Rule Examples
+### Примеры правил
 
-**Rule 1** — each input reference gets its own lifetime parameter:
+**Правило 1** — каждый входной параметр-ссылка получает свой параметр времени жизни:
 ```rust
-// What you write:
+// Что пишете вы:
 fn first_word(s: &str) -> &str { ... }
 
-// What the compiler sees after Rule 1:
+// Что видит компилятор после Правила 1:
 fn first_word<'a>(s: &'a str) -> &str { ... }
-// Only one input lifetime → Rule 2 applies
+// Только один входной параметр-ссылка → применяется Правило 2
 ```
 
-**Rule 2** — single input lifetime propagates to all outputs:
+**Правило 2** — единственное входное время жизни распространяется на все выходные данные:
 ```rust
-// After Rule 2:
+// После Правила 2:
 fn first_word<'a>(s: &'a str) -> &'a str { ... }
-// ✅ All output lifetimes determined — no annotation needed!
+// ✅ Все выходные времена жизни определены — аннотации не нужны!
 ```
 
-**Rule 3** — `&self` lifetime propagates to outputs:
+**Правило 3** — время жизни `&self` распространяется на выходные данные:
 ```rust
-// What you write:
+// Что пишете вы:
 impl SliceStore<'_> {
     fn get_slice(&self) -> &str { self.slice }
 }
 
-// What the compiler sees after Rules 1 + 3:
+// Что видит компилятор после Правил 1 + 3:
 impl SliceStore<'_> {
     fn get_slice<'a>(&'a self) -> &'a str { self.slice }
 }
-// ✅ No annotation needed — &self lifetime used for output
+// ✅ Аннотация не требуется — время жизни &self используется для вывода
 ```
 
-**When elision fails** — you must annotate:
+**Когда сокращение не работает** — вам придется использовать аннотации:
 ```rust
-// Two input references, no &self → Rules 2 and 3 don't apply
-// fn longest(a: &str, b: &str) -> &str  ← WON'T COMPILE
+// Две входных ссылки, нет &self → Правила 2 и 3 не применимы
+// fn longest(a: &str, b: &str) -> &str  ← НЕ СКОМПИЛИРУЕТСЯ
 
-// Fix: tell the compiler which input the output borrows from
+// Решение: сообщить компилятору, от какого входа заимствуется выход
 fn longest<'a>(a: &'a str, b: &'a str) -> &'a str {
     if a.len() >= b.len() { a } else { b }
 }
 ```
 
-### C Programmer Mental Model
+### Ментальная модель для C-программистов
 
-In C, every pointer is independent — the programmer mentally tracks which allocation
-each pointer refers to, and the compiler trusts you completely. In Rust, lifetimes make
-this tracking **explicit and compiler-verified**:
+В C каждый указатель независим — программист мысленно отслеживает, к какому выделению памяти относится каждый указатель, а компилятор полностью доверяет вам. В Rust времена жизни делают это отслеживание **явным и проверяемым на этапе компиляции**:
 
-| C | Rust | What happens |
+| C | Rust | Что происходит |
 |---|------|-------------|
-| `char* get_name(struct User* u)` | `fn get_name(&self) -> &str` | Rule 3 elides: output borrows from `self` |
-| `char* concat(char* a, char* b)` | `fn concat<'a>(a: &'a str, b: &'a str) -> &'a str` | Must annotate — two inputs |
-| `void process(char* in, char* out)` | `fn process(input: &str, output: &mut String)` | No output reference — no lifetime needed |
-| `char* buf; /* who owns this? */` | Compile error if lifetime is wrong | Compiler catches dangling pointers |
+| `char* get_name(struct User* u)` | `fn get_name(&self) -> &str` | Применяется Правило 3: выходной параметр заимствует время жизни от `self` |
+| `char* concat(char* a, char* b)` | `fn concat<'a>(a: &'a str, b: &'a str) -> &'a str` | Необходимо аннотировать — два входных параметра |
+| `void process(char* in, char* out)` | `fn process(input: &str, output: &mut String)` | Нет ссылки на выходе — время жизни не требуется |
+| `char* buf; /* кто владеет этим? */` | Ошибка компиляции, если время жизни указано неверно | Компилятор находит висячие указатели |
 
-### The `'static` Lifetime
+### Время жизни `'static`
 
-`'static` means the reference is valid for the **entire program duration**. It's the
-Rust equivalent of a C global or string literal:
+`'static` означает, что ссылка валидна на **протяжении всего времени работы программы**. Это аналог глобальной переменной или строкового литерала в C:
 
 ```rust
-// String literals are always 'static — they live in the binary's read-only section
-let s: &'static str = "hello";  // Same as: static const char* s = "hello"; in C
+// Строковые литералы всегда имеют время жизни 'static — они находятся в секции read-only бинарного файла
+let s: &'static str = "hello";  // То же самое, что и: static const char* s = "hello"; в C
 
-// Constants are also 'static
+// Константы также имеют время жизни 'static
 static GREETING: &str = "hello";
 
-// Common in trait bounds for thread spawning:
+// Часто встречается в ограничениях типажей при создании потоков:
 fn spawn<F: FnOnce() + Send + 'static>(f: F) { /* ... */ }
-// 'static here means: "the closure must not borrow any local variables"
-// (either move them in, or use only 'static data)
+// 'static здесь означает: "замыкание не должно заимствовать никаких локальных переменных"
+// (либо переместите их внутрь замыкания, либо используйте только данные со временем жизни 'static)
 ```
 
-### Exercise: Predict the Elision
+### Упражнение: Предскажите сокращение
 
-🟡 **Intermediate**
+🟡 **Средний уровень**
 
-For each function signature below, predict whether the compiler can elide lifetimes.
-If not, add the necessary annotations:
+Для каждой сигнатуры функции ниже предскажите, сможет ли компилятор автоматически сократить времена жизни. Если нет, добавьте необходимые аннотации:
 
 ```rust
-// 1. Can the compiler elide?
+// 1. Сможет ли компилятор сократить?
 fn trim_prefix(s: &str) -> &str { &s[1..] }
 
-// 2. Can the compiler elide?
+// 2. Сможет ли компилятор сократить?
 fn pick(flag: bool, a: &str, b: &str) -> &str {
     if flag { a } else { b }
 }
 
-// 3. Can the compiler elide?
+// 3. Сможет ли компилятор сократить?
 struct Parser { data: String }
 impl Parser {
     fn next_token(&self) -> &str { &self.data[..5] }
 }
 
-// 4. Can the compiler elide?
+// 4. Сможет ли компилятор сократить?
 fn split_at(s: &str, pos: usize) -> (&str, &str) {
     (&s[..pos], &s[pos..])
 }
 ```
 
-<details><summary>Solution (click to expand)</summary>
+<details><summary>Решение (нажмите, чтобы развернуть)</summary>
 
 ```rust,ignore
-// 1. YES — Rule 1 gives 'a to s, Rule 2 propagates to output
+// 1. ДА — Правило 1 дает 'a для s, Правило 2 переносит его на результат
 fn trim_prefix(s: &str) -> &str { &s[1..] }
 
-// 2. NO — Two input references, no &self. Must annotate:
+// 2. НЕТ — Две входные ссылки, нет &self. Необходимо аннотировать:
 fn pick<'a>(flag: bool, a: &'a str, b: &'a str) -> &'a str {
     if flag { a } else { b }
 }
 
-// 3. YES — Rule 1 gives 'a to &self, Rule 3 propagates to output
+// 3. ДА — Правило 1 дает 'a для &self, Правило 3 переносит его на результат
 impl Parser {
     fn next_token(&self) -> &str { &self.data[..5] }
 }
 
-// 4. YES — Rule 1 gives 'a to s (only one input reference),
-//    Rule 2 propagates to BOTH outputs. Both slices borrow from s.
+// 4. ДА — Правило 1 дает 'a для s (только одна входная ссылка),
+//    Правило 2 распространяет его на ОБА выходных значения. Оба среза заимствуют данные из s.
 fn split_at(s: &str, pos: usize) -> (&str, &str) {
     (&s[..pos], &s[pos..])
 }

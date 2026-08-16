@@ -1,12 +1,12 @@
-# Rust enum types
+# Типы перечислений в Rust
 
-> **What you'll learn:** Rust enums as discriminated unions (tagged unions done right), `match` for exhaustive pattern matching, and how enums replace C++ class hierarchies and C tagged unions with compiler-enforced safety.
+> **Что вы узнаете:** Перечисления в Rust как размеченные объединения (правильно реализованные tagged unions), сопоставление `match` для исчерпывающего поиска по образцу, а также то, как перечисления заменяют иерархию классов C++ и размеченные объединения C с гарантированной компилятором безопасностью.
 
-- Enum types are discriminated unions, i.e., they are a sum type of several possible different types with a tag that identifies the specific variant
-    - For C developers: enums in Rust can carry data (tagged unions done right — the compiler tracks which variant is active)
-    - For C++ developers: Rust enums are like `std::variant` but with exhaustive pattern matching, no `std::get` exceptions, and no `std::visit` boilerplate
-    - The size of the `enum` is that of the largest possible type. The individual variants are not related to one another and can have completely different types
-    - `enum` types are one of the most powerful features of the language — they replace entire class hierarchies in C++ (more on this in the Case Studies)
+- Типы перечислений (enum) представляют собой размеченные объединения (discriminated unions), то есть они являются суммой нескольких возможных различных типов с тегом, идентифицирующим конкретный вариант
+    - Для разработчиков C: перечисления в Rust могут содержать данные (правильно реализованные размеченные объединения — компилятор сам отслеживает, какой вариант активен)
+    - Для разработчиков C++: перечисления в Rust похожи на `std::variant`, но с исчерпывающим сопоставлением с образцом, отсутствием исключений `std::get` и без шаблонного кода (boilerplate) для `std::visit`
+    - Размер `enum` равен размеру наибольшего из его возможных типов. Отдельные варианты никак не связаны друг с другом и могут иметь совершенно разные типы данных
+    - Типы `enum` — одна из самых мощных возможностей языка: они заменяют собой целые иерархии классов в C++ (подробнее об этом см. в разделе практических примеров)
 ```rust
 fn main() {
     enum Numbers {
@@ -17,38 +17,38 @@ fn main() {
     }
     let a = Numbers::Zero;
     let b = Numbers::SmallNumber(42);
-    let c : Numbers = a; // Ok -- the type of a is Numbers
-    let d : Numbers = b; // Ok -- the type of b is Numbers
+    let c : Numbers = a; // Отлично — тип переменной a выведен как Numbers
+    let d : Numbers = b; // Отлично — тип переменной b выведен как Numbers
 }
 ```
 ----
-# Rust match statement
-- The Rust ```match``` is the equivalent of the C "switch" on steroids
-    - ```match``` can be used for pattern matching on simple data types, ```struct```, ```enum```
-    - The ```match``` statement must be exhaustive, i.e., they must cover all possible cases for a given ```type```. The ```_``` can be used a wildcard for the "all else" case
-    - ```match``` can yield a value, but all arms (```=>```) must return a value of the same type
+# Конструкция match в Rust
+- Конструкция ```match``` в Rust — это аналог "switch" в языке C на стероидах
+    - ```match``` может использоваться для сопоставления с образцом для простых типов данных, ```struct```, ```enum```
+    - Конструкция ```match``` должна быть исчерпывающей (exhaustive), то есть должны быть покрыты все возможные случаи для данного типа. Символ подчеркивания ```_``` используется в качестве шаблона для случая «все остальное»
+    - ```match``` может возвращать значение, но все ветви (```=>```) должны возвращать значение одного и того же типа
 
 ```rust
 fn main() {
     let x = 42;
-    // In this case, the _ covers all numbers except the ones explicitly listed
+    // В данном случае _ покрывает все числа, кроме явно перечисленных
     let is_secret_of_life = match x {
-        42 => true, // return type is boolean value
-        _ => false, // return type boolean value
-        // This won't compile because return type isn't boolean
+        42 => true, // возвращаемый тип — булево значение
+        _ => false, // возвращаемый тип — булево значение
+        // Это не скомпилируется, так как возвращаемый тип не bool
         // _ => 0  
     };
     println!("{is_secret_of_life}");
 }
 ```
 
-# Rust match statement
-- ```match``` supports ranges, boolean filters, and ```if``` guard statements
+# Конструкция match в Rust (продолжение)
+- ```match``` поддерживает диапазоны, булевы фильтры и защитные условия ```if``` (match guards)
 ```rust
 fn main() {
     let x = 42;
     match x {
-        // Note that the =41 ensures the inclusive range
+        // Обратите внимание, что запись =41 задает инклюзивный диапазон
         0..=41 => println!("Less than the secret of life"),
         42 => println!("Secret of life"),
         _ => println!("More than the secret of life"),
@@ -57,15 +57,15 @@ fn main() {
     match y {
         100 if x == 43 => println!("y is 100% not secret of life"),
         100 if x == 42 => println!("y is 100% secret of life"),
-        _ => (),    // Do nothing
+        _ => (),    // Ничего не делать
     }
 }
 ```
 
-# Rust match statement
-- ```match``` and ```enums``` are often combined together
-    - The match statement can "bind" the contained value to a variable. Use ```_``` if the value is a don't care
-    - The ```matches!``` macro can be used to match to specific variant
+# Конструкция match в Rust (продолжение)
+- ```match``` и ```enum``` часто используются вместе
+    - Конструкция match может «связывать» содержащееся значение с переменной. Используйте ```_```, если значение не важно
+    - Макрос ```matches!``` может использоваться для проверки на совпадение с конкретным вариантом
 ```rust
 fn main() {
     enum Numbers {
@@ -81,15 +81,15 @@ fn main() {
         Numbers::BiggerNumber(_) | Numbers::EvenBiggerNumber(_) => println!("Some BiggerNumber or EvenBiggerNumber"),
     }
     
-    // Boolean test for specific variants
+    // Булева проверка для определенных вариантов
     if matches!(b, Numbers::Zero | Numbers::SmallNumber(_)) {
         println!("Matched Zero or small number");
     }
 }
 ```
 
-# Rust match statement
-- ```match``` can also perform matches using destructuring and slices
+# Конструкция match в Rust (продолжение)
+- ```match``` также позволяет сопоставлять данные с использованием деструктуризации и срезов
 ```rust
 fn main() {
     struct Foo {
@@ -98,52 +98,52 @@ fn main() {
     }
     let f = Foo {x: (42, true), y: 100};
     match f {
-        // Capture the value of x into a variable called tuple
+        // Захватывает значение поля x в переменную с именем tuple
         Foo{y: 100, x : tuple} => println!("Matched x: {tuple:?}"),
         _ => ()
     }
     let a = [40, 41, 42];
     match a {
-        // Last element of slice must be 42. @ is used to bind the match
+        // Последним элементом среза должно быть 42. Символ @ используется для связывания совпадения
         [rest @ .., 42] => println!("{rest:?}"),
-        // First element of the slice must be 42. @ is used to bind the match
+        // Первым элементом среза должно быть 42. Символ @ используется для связывания совпадения
         [42, rest @ ..] => println!("{rest:?}"),
         _ => (),
     }
 }
 ```
 
-# Exercise: Implement add and subtract using match and enum
+# Упражнение: Реализация сложения и вычитания с использованием match и enum
 
 🟢 **Starter**
 
-- Write a function that implements arithmetic operations on unsigned 64-bit numbers
-- **Step 1**: Define an enum for operations:
+- Напишите функцию, которая реализует арифметические операции над 64-разрядными беззнаковыми числами
+- **Шаг 1**: Определите перечисление для операций:
 ```rust
 enum Operation {
     Add(u64, u64),
     Subtract(u64, u64),
 }
 ```
-- **Step 2**: Define a result enum:
+- **Шаг 2**: Определите перечисление результата:
 ```rust
 enum CalcResult {
-    Ok(u64),                    // Successful result
-    Invalid(String),            // Error message for invalid operations
+    Ok(u64),                    // Успешный результат
+    Invalid(String),            // Сообщение об ошибке для невалидных операций
 }
 ```
-- **Step 3**: Implement `calculate(op: Operation) -> CalcResult`
-    - For Add: return Ok(sum)
-    - For Subtract: return Ok(difference) if first >= second, otherwise Invalid("Underflow")
-- **Hint**: Use pattern matching in your function:
+- **Шаг 3**: Реализуйте функцию `calculate(op: Operation) -> CalcResult`
+    - Для Add: возвращает Ok(sum)
+    - Для Subtract: возвращает Ok(difference), если первый операнд больше либо равен второму, иначе — Invalid("Underflow")
+- **Подсказка**: Используйте сопоставление с образцом в вашей функции:
 ```rust
 match op {
-    Operation::Add(a, b) => { /* your code */ },
-    Operation::Subtract(a, b) => { /* your code */ },
+    Operation::Add(a, b) => { /* ваш код */ },
+    Operation::Subtract(a, b) => { /* ваш код */ },
 }
 ```
 
-<details><summary>Solution (click to expand)</summary>
+<details><summary>Решение (нажмите, чтобы раскрыть)</summary>
 
 ```rust
 enum Operation {
@@ -179,18 +179,18 @@ fn main() {
         CalcResult::Invalid(msg) => println!("Error: {msg}"),
     }
 }
-// Output:
+// Вывод:
 // 10 + 20 = 30
 // Error: Underflow
 ```
 
 </details>
 
-# Rust associated methods
-- ```impl``` can define methods associated for types like ```struct```, ```enum```, etc
-    - The methods may optionally take ```self``` as a parameter. ```self``` is conceptually similar to passing a pointer to the struct as the first parameter in C, or ```this``` in C++
-    - The reference to ```self``` can be immutable (default: ```&self```), mutable (```&mut self```), or ```self``` (transferring ownership)
-    - The ```Self``` keyword can be used a shortcut to imply the type
+# Связанные методы в Rust
+- С помощью ```impl``` можно определять связанные методы (associated methods) для таких типов, как ```struct```, ```enum``` и т. д.
+    - Эти методы могут опционально принимать ```self``` в качестве параметра. Передача ```self``` концептуально похожа на передачу указателя на структуру первым параметром в C или использование ```this``` в C++
+    - Ссылка на ```self``` может быть неизменяемой (по умолчанию: ```&self```), изменяемой (```&mut self```), или принимать значение целиком (```self``` — с передачей владения)
+    - Ключевое слово ```Self``` может использоваться как сокращение для обозначения самого типа
 ```rust
 struct Point {x: u32, y: u32}
 impl Point {
@@ -207,14 +207,14 @@ fn main() {
 }
 ```
 
-# Exercise: Point add and transform
+# Упражнение: Сложение и преобразование точек (Point)
 
-🟡 **Intermediate** — requires understanding move vs borrow from method signatures
-- Implement the following associated methods for ```Point```
-    - ```add()``` will take another ```Point``` and will increment the x and y values in place (hint: use ```&mut self```)
-    - ```transform()``` will consume an existing ```Point``` (hint: use ```self```) and return a new ```Point``` by squaring the x and y
+🟡 **Средний** — требует понимания разницы между перемещением (move) и заимствованием (borrow) на основе сигнатур методов
+- Реализуйте следующие связанные методы для ```Point```
+    - ```add()``` будет принимать другую точку ```Point``` и увеличивать значения x и y по месту (подсказка: используйте ```&mut self```)
+    - ```transform()``` будет поглощать существующую точку ```Point``` (подсказка: используйте ```self```) и возвращать новую точку ```Point``` со значениями x и y, возведенными в квадрат
 
-<details><summary>Solution (click to expand)</summary>
+<details><summary>Решение (нажмите, чтобы раскрыть)</summary>
 
 ```rust
 struct Point { x: u32, y: u32 }
@@ -239,11 +239,10 @@ fn main() {
     println!("After add: x={}, y={}", p1.x, p1.y);           // x=12, y=23
     let p3 = p1.transform();
     println!("After transform: x={}, y={}", p3.x, p3.y);     // x=144, y=529
-    // p1 is no longer accessible — transform() consumed it
+    // p1 больше недоступна — метод transform() поглотил ее
 }
 ```
 
 </details>
 
 ----
-

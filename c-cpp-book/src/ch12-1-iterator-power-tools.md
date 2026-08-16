@@ -1,52 +1,49 @@
-## Iterator Power Tools Reference
+## Справочник по мощному инструментарию итераторов
 
-> **What you'll learn:** Advanced iterator combinators beyond `filter`/`map`/`collect` — `enumerate`, `zip`, `chain`, `flat_map`, `scan`, `windows`, and `chunks`. Essential for replacing C-style indexed `for` loops with safe, expressive Rust iterators.
+> **Чему вы научитесь:** Продвинутые комбинаторы итераторов, выходящие за рамки `filter`/`map`/`collect` — `enumerate`, `zip`, `chain`, `flat_map`, `scan`, `windows` и `chunks`. Необходимы для замены индексных циклов `for` в стиле C безопасными и выразительными итераторами Rust.
 
-The basic `filter`/`map`/`collect` chain covers many cases, but Rust's iterator library
-is far richer. This section covers the tools you'll reach for daily — especially when
-translating C loops that manually track indices, accumulate results, or process
-data in fixed-size chunks.
+Базовая цепочка `filter`/`map`/`collect` покрывает множество случаев, но библиотека итераторов Rust намного богаче. В этом разделе рассматриваются инструменты, к которым вы будете обращаться ежедневно — особенно при переносе циклов на C, которые вручную отслеживают индексы, накапливают результаты или обрабатывают данные фиксированными блоками.
 
-### Quick Reference Table
+### Быстрый справочник
 
-| Method | C Equivalent | What it does | Returns |
+| Метод | Эквивалент в C | Что делает | Возвращает |
 |--------|-------------|-------------|---------|
-| `enumerate()` | `for (int i=0; ...)` | Pairs each element with its index | `(usize, T)` |
-| `zip(other)` | Parallel arrays with same index | Pairs elements from two iterators | `(A, B)` |
-| `chain(other)` | Process array1 then array2 | Concatenates two iterators | `T` |
-| `flat_map(f)` | Nested loops | Maps then flattens one level | `U` |
-| `windows(n)` | `for (int i=0; i<len-n+1; i++) &arr[i..i+n]` | Overlapping slices of size `n` | `&[T]` |
-| `chunks(n)` | Process `n` elements at a time | Non-overlapping slices of size `n` | `&[T]` |
-| `fold(init, f)` | `int acc = init; for (...) acc = f(acc, x);` | Reduce to single value | `Acc` |
-| `scan(init, f)` | Running accumulator with output | Like `fold` but yields intermediate results | `Option<B>` |
-| `take(n)` / `skip(n)` | Start loop at offset / limit | First `n` / skip first `n` elements | `T` |
-| `take_while(f)` / `skip_while(f)` | `while (pred) {...}` | Take/skip while predicate holds | `T` |
-| `peekable()` | Lookahead with `arr[i+1]` | Allows `.peek()` without consuming | `T` |
-| `step_by(n)` | `for (i=0; i<len; i+=n)` | Take every nth element | `T` |
-| `unzip()` | Split parallel arrays | Collect pairs into two collections | `(A, B)` |
-| `sum()` / `product()` | Accumulate sum/product | Reduce with `+` or `*` | `T` |
-| `min()` / `max()` | Find extremes | Return `Option<T>` | `Option<T>` |
-| `any(f)` / `all(f)` | `bool found = false; for (...) ...` | Short-circuit boolean search | `bool` |
-| `position(f)` | `for (i=0; ...) if (pred) return i;` | Index of first match | `Option<usize>` |
+| `enumerate()` | `for (int i=0; ...)` | Сопоставляет каждый элемент с его индексом | `(usize, T)` |
+| `zip(other)` | Параллельные массивы с общим индексом | Объединяет элементы двух итераторов в пары | `(A, B)` |
+| `chain(other)` | Обработка сначала array1, затем array2 | Последовательно соединяет два итератора | `T` |
+| `flat_map(f)` | Вложенные циклы | Применяет отображение, затем уплотняет на один уровень | `U` |
+| `windows(n)` | `for (int i=0; i<len-n+1; i++) &arr[i..i+n]` | Пересекающиеся срезы размера `n` | `&[T]` |
+| `chunks(n)` | Обработка `n` элементов за раз | Непересекающиеся срезы размера `n` | `&[T]` |
+| `fold(init, f)` | `int acc = init; for (...) acc = f(acc, x);` | Сведение к одному значению | `Acc` |
+| `scan(init, f)` | Накопление с выводом промежуточных результатов | Как `fold`, но возвращает промежуточные результаты | `Option<B>` |
+| `take(n)` / `skip(n)` | Начало цикла со смещением / ограничением | Первые `n` элементов / пропуск первых `n` | `T` |
+| `take_while(f)` / `skip_while(f)` | `while (pred) {...}` | Выборка/пропуск, пока условие истинно | `T` |
+| `peekable()` | Опережающий просмотр без извлечения | Позволяет вызывать `.peek()` без потребления | `T` |
+| `step_by(n)` | `for (i=0; i<len; i+=n)` | Выборка каждого n-го элемента | `T` |
+| `unzip()` | Разделение параллельных массивов | Разделение кортежей в две коллекции | `(A, B)` |
+| `sum()` / `product()` | Вычисление суммы/произведения | Сведение с помощью `+` или `*` | `T` |
+| `min()` / `max()` | Поиск экстремумов | Возвращает Option<T> | `Option<T>` |
+| `any(f)` / `all(f)` | `bool found = false; for (...) ...` | Поиск с сокращенным вычислением (short-circuit) | `bool` |
+| `position(f)` | `for (i=0; ...) if (pred) return i;` | Индекс первого совпадения | `Option<usize>` |
 
-### `enumerate` — Index + Value (replaces C index loops)
+### `enumerate` — индекс + значение (заменяет индексные циклы C)
 
 ```rust
 fn main() {
     let sensors = ["GPU_TEMP", "CPU_TEMP", "FAN_RPM", "PSU_WATT"];
 
-    // C style: for (int i = 0; i < 4; i++) printf("[%d] %s\n", i, sensors[i]);
+    // Стиль C: for (int i = 0; i < 4; i++) printf("[%d] %s\n", i, sensors[i]);
     for (i, name) in sensors.iter().enumerate() {
         println!("[{i}] {name}");
     }
 
-    // Find the index of a specific sensor
+    // Найти индекс конкретного датчика
     let gpu_idx = sensors.iter().position(|&s| s == "GPU_TEMP");
     println!("GPU sensor at index: {gpu_idx:?}");  // Some(0)
 }
 ```
 
-### `zip` — Parallel Iteration (replaces parallel array loops)
+### `zip` — параллельный обход (заменяет циклы параллельных массивов)
 
 ```rust
 fn main() {
@@ -54,7 +51,7 @@ fn main() {
     let statuses = [true, false, true];
     let durations_ms = [1200, 850, 3400];
 
-    // C: for (int i=0; i<3; i++) printf("%s: %s (%d ms)\n", names[i], ...);
+    // Стиль C: for (int i=0; i<3; i++) printf("%s: %s (%d ms)\n", names[i], ...);
     for ((name, passed), ms) in names.iter().zip(&statuses).zip(&durations_ms) {
         let status = if *passed { "PASS" } else { "FAIL" };
         println!("{name}: {status} ({ms} ms)");
@@ -62,27 +59,27 @@ fn main() {
 }
 ```
 
-### `chain` — Concatenate Iterators
+### `chain` — последовательное соединение итераторов
 
 ```rust
 fn main() {
     let critical = vec!["ECC error", "Thermal shutdown"];
     let warnings = vec!["Link degraded", "Fan slow"];
 
-    // Process all events in priority order
+    // Обработка всех событий в порядке приоритета
     let all_events: Vec<_> = critical.iter().chain(warnings.iter()).collect();
     println!("{all_events:?}");
     // ["ECC error", "Thermal shutdown", "Link degraded", "Fan slow"]
 }
 ```
 
-### `flat_map` — Flatten Nested Results
+### `flat_map` — уплотнение вложенных результатов
 
 ```rust
 fn main() {
     let lines = vec!["gpu:42:ok", "nic:99:fail", "cpu:7:ok"];
 
-    // Extract all numeric values from colon-separated lines
+    // Извлечение всех числовых значений из строк с разделителем `:`
     let numbers: Vec<u32> = lines.iter()
         .flat_map(|line| line.split(':'))
         .filter_map(|token| token.parse::<u32>().ok())
@@ -91,41 +88,41 @@ fn main() {
 }
 ```
 
-### `windows` and `chunks` — Sliding and Fixed-Size Groups
+### `windows` и `chunks` — скользящие и фиксированные группы
 
 ```rust
 fn main() {
     let temps = [65, 68, 72, 71, 75, 80, 78, 76];
 
-    // windows(3): overlapping groups of 3 (like a sliding average)
-    // C: for (int i = 0; i <= len-3; i++) avg(arr[i], arr[i+1], arr[i+2]);
+    // windows(3): перекрывающиеся группы по 3 (например, для скользящего среднего)
+    // Стиль C: for (int i = 0; i <= len-3; i++) avg(arr[i], arr[i+1], arr[i+2]);
     let moving_avg: Vec<f64> = temps.windows(3)
         .map(|w| w.iter().sum::<i32>() as f64 / 3.0)
         .collect();
     println!("Moving avg: {moving_avg:.1?}");
 
-    // chunks(2): non-overlapping groups of 2
-    // C: for (int i = 0; i < len; i += 2) process(arr[i], arr[i+1]);
+    // chunks(2): непересекающиеся группы по 2
+    // Стиль C: for (int i = 0; i < len; i += 2) process(arr[i], arr[i+1]);
     for pair in temps.chunks(2) {
         println!("Chunk: {pair:?}");
     }
 
-    // chunks_exact(2): same but panics if remainder exists
-    // Also: .remainder() gives leftover elements
+    // chunks_exact(2): то же самое, но вызывает панику при наличии остатка
+    // Также: .remainder() возвращает оставшиеся элементы
 }
 ```
 
-### `fold` and `scan` — Accumulation
+### `fold` и `scan` — накопление
 
 ```rust
 fn main() {
     let values = [10, 20, 30, 40, 50];
 
-    // fold: single final result (like C's accumulator loop)
+    // fold: один конечный результат (как цикл накопления в C)
     let sum = values.iter().fold(0, |acc, &x| acc + x);
     println!("Sum: {sum}");  // 150
 
-    // Build a string with fold
+    // Сборка строки с помощью fold
     let csv = values.iter()
         .fold(String::new(), |acc, x| {
             if acc.is_empty() { format!("{x}") }
@@ -133,7 +130,7 @@ fn main() {
         });
     println!("CSV: {csv}");  // "10,20,30,40,50"
 
-    // scan: like fold but yields intermediate results
+    // scan: как fold, но возвращает промежуточные результаты
     let running_sum: Vec<i32> = values.iter()
         .scan(0, |state, &x| {
             *state += x;
@@ -144,17 +141,16 @@ fn main() {
 }
 ```
 
-### Exercise: Sensor Data Pipeline
+### Упражнение: Конвейер данных с датчиков
 
-Given raw sensor readings (one per line, format `"sensor_name:value:unit"`), write an
-iterator pipeline that:
-1. Parses each line into `(name, f64, unit)`
-2. Filters out readings below a threshold
-3. Groups by sensor name using `fold` into a `HashMap`
-4. Prints the average reading per sensor
+Даны необработанные показания датчиков (по одному в строке, формат `"sensor_name:value:unit"`). Напишите конвейер итераторов, который:
+1. Парсит каждую строку в `(name, f64, unit)`
+2. Отфильтровывает показания ниже порогового значения
+3. Группирует по имени датчика с помощью `fold` в `HashMap`
+4. Выводит среднее значение показаний для каждого датчика
 
 ```rust
-// Starter code
+// Начальный код
 fn main() {
     let raw_data = vec![
         "gpu_temp:72.5:C",
@@ -166,11 +162,11 @@ fn main() {
         "fan_rpm:1150.0:RPM",
     ];
     let threshold = 70.0;
-    // TODO: Parse, filter values >= threshold, group by name, compute averages
+    // TODO: Парсинг, фильтрация значений >= threshold, группировка по имени, вычисление средних значений
 }
 ```
 
-<details><summary>Solution (click to expand)</summary>
+<details><summary>Решение (нажмите, чтобы раскрыть)</summary>
 
 ```rust
 use std::collections::HashMap;
@@ -187,7 +183,7 @@ fn main() {
     ];
     let threshold = 70.0;
 
-    // Parse → filter → group → average
+    // Парсинг → фильтрация → группировка → усреднение
     let grouped = raw_data.iter()
         .filter_map(|line| {
             let parts: Vec<&str> = line.splitn(3, ':').collect();
@@ -209,7 +205,7 @@ fn main() {
         println!("{name}: avg={avg:.1} ({} readings)", values.len());
     }
 }
-// Output (order may vary):
+// Вывод (порядок может отличаться):
 // gpu_temp: avg=75.6 (3 readings)
 // fan_rpm: avg=1175.0 (2 readings)
 ```
@@ -217,12 +213,10 @@ fn main() {
 </details>
 
 
-# Rust iterators
-- The ```Iterator``` trait is used to implement iteration over user-defined types (https://doc.rust-lang.org/std/iter/trait.IntoIterator.html)
-    - In the example, we'll implement an iterator for the Fibonacci sequence, which starts with 1, 1, 2, ... and the successor is the sum of the previous two numbers
-    - The ```associated type``` in the ```Iterator``` (```type Item = u32;```) defines the output type from our iterator (```u32```)
-    - The ```next()``` method simply contains the logic for implementing our iterator. In this case, all state information is available in the ```Fibonacci``` structure
-    - We could have implemented another trait called ```IntoIterator``` to implement the ```into_iter()``` method for more specialized iterators
+# Итераторы в Rust
+- Трейт `Iterator` используется для реализации итерации по пользовательским типам (https://doc.rust-lang.org/std/iter/trait.IntoIterator.html).
+    - В этом примере мы реализуем итератор для последовательности Фибоначчи, которая начинается с 1, 1, 2, ... и каждое последующее число равно сумме двух предыдущих.
+    - Ассоциированный тип в трейте `Iterator` (`type Item = u32;`) определяет тип элементов, выдаваемых итератором (`u32`).
+    - Метод `next()` содержит логику работы итератора. В данном случае вся информация о состоянии хранится в структуре `Fibonacci`.
+    - Мы также могли бы реализовать трейт `IntoIterator`, чтобы предоставить метод `into_iter()` для более специализированных итераторов.
     - https://play.rust-lang.org/?version=stable&mode=debug&edition=2021&gist=ab367dc2611e1b5a0bf98f1185b38f3f
-
-

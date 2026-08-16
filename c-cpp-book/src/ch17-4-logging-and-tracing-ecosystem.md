@@ -1,27 +1,24 @@
-## Logging and Tracing: syslog/printf → `log` + `tracing`
+## Логирование и трассировка: переход с syslog/printf на `log` + `tracing`
 
-> **What you'll learn:** Rust's two-layer logging architecture (facade + backend), the `log` and `tracing` crates, structured logging with spans, and how this replaces `printf`/`syslog` debugging.
+> **Чему вы научитесь:** Двухуровневой архитектуре логирования в Rust (фасад + бэкенд), крейтам `log` и `tracing`, структурированному логированию со спанами (spans), а также тому, как это заменяет отладку с помощью `printf`/`syslog`.
 
-C++ diagnostic code typically uses `printf`, `syslog`, or custom logging frameworks.
-Rust has a standardized two-layer logging architecture: a **facade** crate (`log` or
-`tracing`) and a **backend** (the actual logger implementation).
+Диагностический код на C++ обычно использует `printf`, `syslog` или кастомные фреймворки логирования. В Rust принята стандартизированная двухуровневая архитектура логирования: крейт-**фасад** (`log` или `tracing`) и **бэкенд** (непосредственная реализация логера).
 
-### The `log` facade — Rust's universal logging API
+### Фасад `log` — универсальный API логирования в Rust
 
-The `log` crate provides macros that mirror syslog severity levels. Libraries use
-`log` macros; binaries choose a backend:
+Крейт `log` предоставляет макросы, соответствующие уровням важности syslog. Библиотеки используют макросы `log`, а исполняемые файлы (binaries) выбирают конкретный бэкенд:
 
 ```rust
 // Cargo.toml
 // [dependencies]
 // log = "0.4"
-// env_logger = "0.11"    # One of many backends
+// env_logger = "0.11"    # Один из множества бэкендов
 
 use log::{info, warn, error, debug, trace};
 
 fn check_sensor(id: u32, temp: f64) {
-    trace!("Reading sensor {id}");           // Finest granularity
-    debug!("Sensor {id} raw value: {temp}"); // Development-time detail
+    trace!("Reading sensor {id}");           // Максимальная детализация
+    debug!("Sensor {id} raw value: {temp}"); // Подробности для этапа разработки
 
     if temp > 85.0 {
         warn!("Sensor {id} high temperature: {temp}°C");
@@ -29,12 +26,12 @@ fn check_sensor(id: u32, temp: f64) {
     if temp > 95.0 {
         error!("Sensor {id} CRITICAL: {temp}°C — initiating shutdown");
     }
-    info!("Sensor {id} check complete");     // Normal operation
+    info!("Sensor {id} check complete");     // Обычный режим работы
 }
 
 fn main() {
-    // Initialize the backend — typically done once in main()
-    env_logger::init();  // Controlled by RUST_LOG env var
+    // Инициализируем бэкенд — обычно это делается один раз в main()
+    env_logger::init();  // Управляется переменной окружения RUST_LOG
 
     check_sensor(0, 72.5);
     check_sensor(1, 91.0);
@@ -42,27 +39,26 @@ fn main() {
 ```
 
 ```bash
-# Control log level via environment variable
-RUST_LOG=debug cargo run          # Show debug and above
-RUST_LOG=warn cargo run           # Show only warn and error
-RUST_LOG=my_crate=trace cargo run # Per-module filtering
-RUST_LOG=my_crate::gpu=debug,warn cargo run  # Mix levels
+# Управление уровнем логирования через переменную окружения
+RUST_LOG=debug cargo run          # Показать логи уровня debug и выше
+RUST_LOG=warn cargo run           # Показать только warn и error
+RUST_LOG=my_crate=trace cargo run # Фильтрация по модулям
+RUST_LOG=my_crate::gpu=debug,warn cargo run  # Смешивание уровней
 ```
 
-### C++ comparison
+### Сравнение с C++
 
-| C++ | Rust (`log`) | Notes |
+| C++ | Rust (`log`) | Примечания |
 |-----|-------------|-------|
-| `printf("DEBUG: %s\n", msg)` | `debug!("{msg}")` | Format checked at compile time |
-| `syslog(LOG_ERR, "...")` | `error!("...")` | Backend decides where output goes |
-| `#ifdef DEBUG` around log calls | `trace!` / `debug!` compiled out at max_level | Zero-cost when disabled |
-| Custom `Logger::log(level, msg)` | `log::info!("...")` — all crates use same API | Universal facade, swappable backend |
-| Per-file log verbosity | `RUST_LOG=crate::module=level` | Environment-based, no recompile |
+| `printf("DEBUG: %s\n", msg)` | `debug!("{msg}")` | Строка формата проверяется при компиляции |
+| `syslog(LOG_ERR, "...")` | `error!("...")` | Бэкенд решает, куда направлять вывод |
+| `#ifdef DEBUG` вокруг вызовов логирования | Вызовы `trace!` / `debug!` исключаются при компиляции на max_level | Нулевая стоимость при отключении |
+| Кастомный `Logger::log(level, msg)` | `log::info!("...")` — все крейты используют общий API | Универсальный фасад, заменяемый бэкенд |
+| Детализация логов для отдельных файлов | `RUST_LOG=crate::module=level` | Настраивается через окружение, без перекомпиляции |
 
-### The `tracing` crate — structured logging with spans
+### Крейт `tracing` — структурированное логирование со спанами (spans)
 
-`tracing` extends `log` with **structured fields** and **spans** (timed scopes).
-This is especially useful for diagnostics code where you want to track context:
+Крейт `tracing` расширяет возможности `log`, добавляя **структурированные поля** и **спаны** (spans, временные контексты). Это особенно полезно в диагностическом коде, где важно отслеживать контекст:
 
 ```rust
 // Cargo.toml
@@ -77,14 +73,14 @@ fn run_gpu_test(gpu_id: u32, data: &[u8]) -> Result<(), String> {
     info!("Starting GPU test");
 
     let span = info_span!("ecc_check", gpu_id);
-    let _guard = span.enter();  // All logs inside this scope include gpu_id
+    let _guard = span.enter();  // Все логи внутри этой области будут содержать gpu_id
 
     if data.is_empty() {
         error!(gpu_id, "No test data provided");
         return Err("empty data".to_string());
     }
 
-    // Structured fields — machine-parseable, not just string interpolation
+    // Структурированные поля — машиночитаемые, а не просто интерполяция строк
     info!(
         gpu_id,
         temp_celsius = 72.5,
@@ -96,41 +92,40 @@ fn run_gpu_test(gpu_id: u32, data: &[u8]) -> Result<(), String> {
 }
 
 fn main() {
-    // Initialize tracing subscriber
+    // Инициализируем подписчик (subscriber) tracing
     tracing_subscriber::fmt()
-        .with_env_filter("debug")  // Or use RUST_LOG env var
-        .with_target(true)          // Show module path
-        .with_thread_ids(true)      // Show thread IDs
+        .with_env_filter("debug")  // Или используйте переменную окружения RUST_LOG
+        .with_target(true)          // Показывать путь к модулю
+        .with_thread_ids(true)      // Показывать ID потоков
         .init();
 
     let _ = run_gpu_test(0, &[1, 2, 3]);
 }
 ```
 
-Output with `tracing-subscriber`:
+Вывод с использованием `tracing-subscriber`:
 ```rust
 2026-02-15T10:30:00.123Z DEBUG ThreadId(01) run_gpu_test{gpu_id=0 data_len=3}: my_crate: Starting GPU test
 2026-02-15T10:30:00.124Z  INFO ThreadId(01) run_gpu_test{gpu_id=0 data_len=3}:ecc_check{gpu_id=0}: my_crate: ECC check passed gpu_id=0 temp_celsius=72.5 ecc_errors=0
 ```
 
-### `#[instrument]` — automatic span creation
+### `#[instrument]` — автоматическое создание спанов
 
-The `#[instrument]` attribute automatically creates a span with the function name
-and its arguments:
+Атрибут `#[instrument]` автоматически создает спан с именем функции и ее аргументами:
 
 ```rust
 use tracing::instrument;
 
 #[instrument]
 fn parse_sel_record(record_id: u16, sensor_type: u8, data: &[u8]) -> Result<(), String> {
-    // Every log inside this function automatically includes:
-    // record_id, sensor_type, and data (if Debug)
+    // Каждый лог внутри этой функции автоматически включает в себя:
+    // record_id, sensor_type и data (если реализован типаж Debug)
     tracing::debug!("Parsing SEL record");
     Ok(())
 }
 
-// skip: exclude large/sensitive args from the span
-// fields: add computed fields
+// skip: исключает большие/чувствительные аргументы из спана
+// fields: добавляет вычисляемые поля
 #[instrument(skip(raw_buffer), fields(buf_len = raw_buffer.len()))]
 fn decode_ipmi_response(raw_buffer: &[u8]) -> Result<Vec<u8>, String> {
     tracing::trace!("Decoding {} bytes", raw_buffer.len());
@@ -138,32 +133,28 @@ fn decode_ipmi_response(raw_buffer: &[u8]) -> Result<Vec<u8>, String> {
 }
 ```
 
-### `log` vs `tracing` — which to use
+### Сравнение `log` и `tracing`
 
-| Aspect | `log` | `tracing` |
+| Аспект | `log` | `tracing` |
 |--------|-------|-----------|
-| **Complexity** | Simple — 5 macros | Richer — spans, fields, instruments |
-| **Structured data** | String interpolation only | Key-value fields: `info!(gpu_id = 0, "msg")` |
-| **Timing / spans** | No | Yes — `#[instrument]`, `span.enter()` |
-| **Async support** | Basic | First-class — spans propagate across `.await` |
-| **Compatibility** | Universal facade | Compatible with `log` (has a `log` bridge) |
-| **When to use** | Simple applications, libraries | Diagnostic tools, async code, observability |
+| **Сложность** | Простой — 5 макросов | Более богатый — спаны, поля, инспектирование |
+| **Структурированные данные** | Только интерполяция строк | Поля ключ-значение: `info!(gpu_id = 0, "msg")` |
+| **Замеры времени / спаны** | Нет | Да — `#[instrument]`, `span.enter()` |
+| **Асинхронность** | Базовая поддержка | Полноценная поддержка — спаны переносятся через точки `.await` |
+| **Совместимость** | Универсальный фасад | Совместим с `log` (имеет мост для `log`) |
+| **Когда использовать** | Простые приложения, библиотеки | Инструменты диагностики, асинхронный код, наблюдаемость (observability) |
 
-> **Recommendation**: Use `tracing` for production diagnostic-style projects (diagnostic tools
-> with structured output). Use `log` for simple libraries where you want minimal
-> dependencies. `tracing` includes a compatibility layer so libraries using `log`
-> macros still work with a `tracing` subscriber.
+> **Рекомендация**: Используйте `tracing` для продакшн-проектов диагностической направленности (утилиты диагностики со структурированным выводом). Используйте `log` для простых библиотек, где требуется минимум зависимостей. `tracing` содержит уровень совместимости, поэтому библиотеки, использующие макросы `log`, будут корректно работать с подписчиком `tracing`.
 
-### Backend options
+### Варианты бэкендов
 
-| Backend Crate | Output | Use Case |
+| Крейт бэкенда | Вывод | Сценарий использования |
 |--------------|--------|----------|
-| `env_logger` | stderr, colored | Development, simple CLI tools |
-| `tracing-subscriber` | stderr, formatted | Production with `tracing` |
-| `syslog` | System syslog | Linux system services |
-| `tracing-journald` | systemd journal | systemd-managed services |
-| `tracing-appender` | Rotating log files | Long-running daemons |
-| `tracing-opentelemetry` | OpenTelemetry collector | Distributed tracing |
+| `env_logger` | stderr, цветной | Разработка, простые CLI-инструменты |
+| `tracing-subscriber` | stderr, форматированный | Продакшн с использованием `tracing` |
+| `syslog` | Системный syslog | Системные службы Linux |
+| `tracing-journald` | Журнал systemd | Службы под управлением systemd |
+| `tracing-appender` | Ротируемые файлы логов | Демоны (фоновые процессы) с долгим временем работы |
+| `tracing-opentelemetry` | Коллектор OpenTelemetry | Распределенная трассировка |
 
 ----
-

@@ -1,22 +1,22 @@
-# Rust Option and Result key takeaways
+# Ключевые выводы по Option и Result в Rust
 
-> **What you'll learn:** Idiomatic error handling patterns — safe alternatives to `unwrap()`, the `?` operator for propagation, custom error types, and when to use `anyhow` vs `thiserror` in production code.
+> **Что вы узнаете:** Идиоматические шаблоны обработки ошибок — безопасные альтернативы `unwrap()`, оператор `?` для распространения ошибок, пользовательские типы ошибок, а также когда использовать `anyhow` и `thiserror` в промышленном коде.
 
-- ```Option``` and ```Result``` are an integral part of idiomatic Rust
-- **Safe alternatives to `unwrap()`**:
+- `Option` и `Result` являются неотъемлемой частью идиоматического Rust.
+- **Безопасные альтернативы методу `unwrap()`**:
 ```rust
-// Option<T> safe alternatives
-let value = opt.unwrap_or(default);              // Provide fallback value
-let value = opt.unwrap_or_else(|| compute());    // Lazy computation for fallback
-let value = opt.unwrap_or_default();             // Use Default trait implementation
-let value = opt.expect("descriptive message");   // Only when panic is acceptable
+// Безопасные альтернативы для Option<T>
+let value = opt.unwrap_or(default);              // Предоставить резервное значение (fallback)
+let value = opt.unwrap_or_else(|| compute());    // Отложенное вычисление резервного значения
+let value = opt.unwrap_or_default();             // Использовать реализацию типажа Default
+let value = opt.expect("descriptive message");   // Только если паника допустима
 
-// Result<T, E> safe alternatives  
-let value = result.unwrap_or(fallback);          // Ignore error, use fallback
-let value = result.unwrap_or_else(|e| handle(e)); // Handle error, return fallback
-let value = result.unwrap_or_default();          // Use Default trait
+// Безопасные альтернативы для Result<T, E>  
+let value = result.unwrap_or(fallback);          // Проигнорировать ошибку, использовать резервное значение
+let value = result.unwrap_or_else(|e| handle(e)); // Обработать ошибку, вернуть резервное значение
+let value = result.unwrap_or_default();          // Использовать типаж Default
 ```
-- **Pattern matching for explicit control**:
+- **Сопоставление с шаблоном для явного управления**:
 ```rust
 match some_option {
     Some(value) => println!("Got: {}", value),
@@ -28,77 +28,77 @@ match some_result {
     Err(error) => log_error(error),
 }
 ```
-- **Use `?` operator for error propagation**: Short-circuit and bubble up errors
+- **Использование оператора `?` для распространения ошибок**: немедленный возврат и передача ошибок выше по стеку вызовов
 ```rust
 fn process_file(path: &str) -> Result<String, std::io::Error> {
-    let content = std::fs::read_to_string(path)?; // Automatically returns error
+    let content = std::fs::read_to_string(path)?; // Автоматически возвращает ошибку
     Ok(content.to_uppercase())
 }
 ```
-- **Transformation methods**:
-    - `map()`: Transform the success value `Ok(T)` -> `Ok(U)` or `Some(T)` -> `Some(U)`
-    - `map_err()`: Transform the error type `Err(E)` -> `Err(F)`
-    - `and_then()`: Chain operations that can fail
-- **Use in your own APIs**: Prefer `Result<T, E>` over exceptions or error codes
-- **References**: [Option docs](https://doc.rust-lang.org/std/option/enum.Option.html) | [Result docs](https://doc.rust-lang.org/std/result/enum.Result.html)
+- **Методы преобразования**:
+    - `map()`: преобразует успешное значение `Ok(T)` -> `Ok(U)` or `Some(T)` -> `Some(U)`.
+    - `map_err()`: преобразует тип ошибки `Err(E)` -> `Err(F)`.
+    - `and_then()`: последовательное связывание в цепочку операций, которые могут завершиться ошибкой.
+- **Использование в собственных API**: отдавайте предпочтение `Result<T, E>` перед исключениями или кодами ошибок.
+- **Справочники**: [Документация по Option](https://doc.rust-lang.org/std/option/enum.Option.html) | [Документация по Result](https://doc.rust-lang.org/std/result/enum.Result.html)
 
-# Rust Common Pitfalls and Debugging Tips
-- **Borrowing issues**: Most common beginner mistake
-    - "cannot borrow as mutable" -> Only one mutable reference allowed at a time
-    - "borrowed value does not live long enough" -> Reference outlives the data it points to
-    - **Fix**: Use scopes `{}` to limit reference lifetimes, or clone data when needed
-- **Missing trait implementations**: "method not found" errors
-    - **Fix**: Add `#[derive(Debug, Clone, PartialEq)]` for common traits
-    - Use `cargo check` to get better error messages than `cargo run`
-- **Integer overflow in debug mode**: Rust panics on overflow
-    - **Fix**: Use `wrapping_add()`, `saturating_add()`, or `checked_add()` for explicit behavior
-- **String vs &str confusion**: Different types for different use cases
-    - Use `&str` for string slices (borrowed), `String` for owned strings
-    - **Fix**: Use `.to_string()` or `String::from()` to convert `&str` to `String`
-- **Fighting the borrow checker**: Don't try to outsmart it
-    - **Fix**: Restructure code to work with ownership rules rather than against them
-    - Consider using `Rc<RefCell<T>>` for complex sharing scenarios (sparingly)
+# Распространенные ошибки в Rust и советы по отладке
+- **Проблемы с заимствованием**: самая частая ошибка новичков
+    - "cannot borrow as mutable" -> разрешена только одна изменяемая ссылка одновременно.
+    - "borrowed value does not live long enough" -> ссылка живет дольше, чем данные, на которые она указывает.
+    - **Решение**: используйте блоки видимости `{}` для ограничения времени жизни ссылок или клонируйте данные при необходимости.
+- **Отсутствие реализаций типажей**: ошибки вида "method not found"
+    - **Решение**: добавьте `#[derive(Debug, Clone, PartialEq)]` для реализации часто используемых типажей.
+    - Используйте команду `cargo check` для получения более информативных сообщений об ошибках по сравнению с `cargo run`.
+- **Переполнение целых чисел в режиме отладки**: Rust паникует при переполнении
+    - **Решение**: используйте методы `wrapping_add()`, `saturating_add()` или `checked_add()` для явного указания желаемого поведения.
+- **Путаница со String и &str**: разные типы для разных сценариев использования
+    - Используйте `&str` для срезов строк (заимствованные строки), а `String` — для строк, которыми вы владеете.
+    - **Решение**: используйте методы `.to_string()` или `String::from()` для преобразования `&str` в `String`.
+- **Борьба с проверкой заимствований (borrow checker)**: не пытайтесь перехитрить ее
+    - **Решение**: перестройте структуру кода так, чтобы он работал в соответствии с правилами владения, а не вопреки им.
+    - Рассмотрите возможность использования `Rc<RefCell<T>>` для сложных сценариев совместного использования (но пользуйтесь этим умеренно).
 
-## Error Handling Examples: Good vs Bad
+## Примеры обработки ошибок: хорошо против плохо
 ```rust
-// [ERROR] BAD: Can panic unexpectedly
+// [ОШИБКА] ПЛОХО: может неожиданно вызвать панику
 fn bad_config_reader() -> String {
-    let config = std::env::var("CONFIG_FILE").unwrap(); // Panic if not set!
-    std::fs::read_to_string(config).unwrap()           // Panic if file missing!
+    let config = std::env::var("CONFIG_FILE").unwrap(); // Паника, если переменная не установлена!
+    std::fs::read_to_string(config).unwrap()           // Паника, если файл отсутствует!
 }
 
-// [OK] GOOD: Handles errors gracefully
+// [OK] ХОРОШО: корректно обрабатывает ошибки
 fn good_config_reader() -> Result<String, ConfigError> {
     let config_path = std::env::var("CONFIG_FILE")
-        .unwrap_or_else(|_| "default.conf".to_string()); // Fallback to default
-    
+        .unwrap_or_else(|_| "default.conf".to_string()); // Переход к резервному значению
+
     let content = std::fs::read_to_string(config_path)
-        .map_err(ConfigError::FileRead)?;                // Convert and propagate error
-    
+        .map_err(ConfigError::FileRead)?;                // Преобразование и передача ошибки выше
+
     Ok(content)
 }
 
-// [OK] EVEN BETTER: With proper error types
+// [OK] ЕЩЕ ЛУЧШЕ: с использованием подходящих типов ошибок
 use thiserror::Error;
 
 #[derive(Error, Debug)]
 enum ConfigError {
     #[error("Failed to read config file: {0}")]
     FileRead(#[from] std::io::Error),
-    
+
     #[error("Invalid configuration: {message}")]
     Invalid { message: String },
 }
 ```
 
-Let's break down what's happening here. `ConfigError` has just **two variants** — one for I/O errors and one for validation errors. This is the right starting point for most modules:
+Разберем, что здесь происходит. Перечисление `ConfigError` имеет всего **два варианта** — один для ошибок ввода-вывода (I/O) и один для ошибок валидации. Это правильная отправная точка для большинства модулей:
 
-| `ConfigError` variant | Holds | Created by |
+| Вариант `ConfigError` | Содержимое | Чем создается |
 |----------------------|-------|-----------|
-| `FileRead(io::Error)` | The original I/O error | `#[from]` auto-converts via `?` |
-| `Invalid { message }` | A human-readable explanation | Your validation code |
+| `FileRead(io::Error)` | Исходная ошибка ввода-вывода | `#[from]` автоматически преобразует её с помощью оператора `?` |
+| `Invalid { message }` | Человекочитаемое объяснение | Ваш код валидации |
 
-Now you can write functions that return `Result<T, ConfigError>`:
+Теперь вы можете писать функции, возвращающие `Result<T, ConfigError>`:
 
 ```rust
 fn read_config(path: &str) -> Result<String, ConfigError> {
@@ -112,58 +112,56 @@ fn read_config(path: &str) -> Result<String, ConfigError> {
 }
 ```
 
-> **🟢 Self-study checkpoint:** Before continuing, make sure you can answer:
-> 1. Why does `?` on the `read_to_string` call work? (Because `#[from]` generates `impl From<io::Error> for ConfigError`)
-> 2. What happens if you add a third variant `MissingKey(String)` — what code changes? (Just add the variant; existing code still compiles)
+> **🟢 Контрольная точка для самопроверки:** Прежде чем продолжить, убедитесь, что можете ответить на вопросы:
+> 1. Почему работает оператор `?` при вызове `read_to_string`? (Потому что атрибут `#[from]` генерирует `impl From<io::Error> for ConfigError`).
+> 2. Что произойдет, если добавить третий вариант `MissingKey(String)` — какие изменения потребуются в коде? (Просто добавьте вариант; существующий код продолжит компилироваться).
 
-## Crate-Level Error Types and Result Aliases
+## Типы ошибок на уровне пакета и псевдонимы Result
 
-As your project grows beyond a single file, you'll combine multiple module-level errors into a **crate-level error type**. This is the standard pattern in production Rust. Let's build up from the `ConfigError` above.
+По мере роста вашего проекта за рамки одного файла вы начнете объединять несколько ошибок на уровне модулей в один **тип ошибок на уровне пакета (crate-level error type)**. Это стандартный шаблон проектирования в промышленном Rust. Давайте разовьем пример на основе `ConfigError`, описанного выше.
 
-In real-world Rust projects, every crate (or significant module) defines its own `Error`
-enum and a `Result` type alias.  This is the idiomatic pattern — analogous to how in C++
-you'd define a per-library exception hierarchy and `using Result = std::expected<T, Error>`.
+В реальных проектах на Rust каждый пакет (или крупный модуль) определяет свое собственное перечисление `Error` и псевдоним типа `Result`. Это идиоматический шаблон, аналогичный тому, как в C++ вы определяете иерархию исключений для библиотеки и объявляете псевдоним `using Result = std::expected<T, Error>`.
 
-### The pattern
+### Шаблон проектирования
 
 ```rust
-// src/error.rs  (or at the top of lib.rs)
+// src/error.rs  (или в начале файла lib.rs)
 use thiserror::Error;
 
-/// Every error this crate can produce.
+/// Любая ошибка, которую может сгенерировать данный пакет.
 #[derive(Error, Debug)]
 pub enum Error {
     #[error("I/O error: {0}")]
-    Io(#[from] std::io::Error),          // auto-converts via From
+    Io(#[from] std::io::Error),          // автоматическое преобразование через From
 
     #[error("JSON parse error: {0}")]
-    Json(#[from] serde_json::Error),     // auto-converts via From
+    Json(#[from] serde_json::Error),     // автоматическое преобразование через From
 
     #[error("Invalid sensor id: {0}")]
-    InvalidSensor(u32),                  // domain-specific variant
+    InvalidSensor(u32),                  // специфическая для домена ошибка
 
     #[error("Timeout after {ms} ms")]
     Timeout { ms: u64 },
 }
 
-/// Crate-wide Result alias — saves typing throughout the crate.
+/// Псевдоним Result на уровне пакета — избавляет от лишнего ввода кода во всем пакете.
 pub type Result<T> = core::result::Result<T, Error>;
 ```
 
-### How it simplifies every function
+### Как это упрощает написание функций
 
-Without the alias you'd write:
+Без использования псевдонима вам пришлось бы писать:
 
 ```rust
-// Verbose — error type repeated everywhere
+// Избыточно — тип ошибки повторяется повсюду
 fn read_sensor(id: u32) -> Result<f64, crate::Error> { ... }
 fn parse_config(path: &str) -> Result<Config, crate::Error> { ... }
 ```
 
-With the alias:
+С использованием псевдонима:
 
 ```rust
-// Clean — just `Result<T>`
+// Чисто — просто `Result<T>`
 use crate::{Error, Result};
 
 fn read_sensor(id: u32) -> Result<f64> {
@@ -177,10 +175,10 @@ fn read_sensor(id: u32) -> Result<f64> {
 }
 ```
 
-The `#[from]` attribute on `Io` generates this `impl` for free:
+Атрибут `#[from]` для варианта `Io` автоматически бесплатно генерирует следующую реализацию типажа `From`:
 
 ```rust
-// Auto-generated by thiserror's #[from]
+// Автоматически генерируется макросом #[from] библиотеки thiserror
 impl From<std::io::Error> for Error {
     fn from(source: std::io::Error) -> Self {
         Error::Io(source)
@@ -188,13 +186,11 @@ impl From<std::io::Error> for Error {
 }
 ```
 
-That's what makes `?` work: when a function returns `std::io::Error` and your function
-returns `Result<T>` (your alias), the compiler calls `From::from()` to convert it
-automatically.
+Именно благодаря этому работает оператор `?`: когда функция возвращает `std::io::Error`, а ваша функция возвращает `Result<T>` (ваш псевдоним), компилятор вызывает `From::from()` для ее автоматического преобразования.
 
-### Composing module-level errors
+### Объединение ошибок уровня модулей
 
-Larger crates split errors by module, then compose them at the crate root:
+Крупные пакеты разделяют ошибки по модулям, а затем объединяют их в корне пакета:
 
 ```rust
 // src/config/error.rs
@@ -206,10 +202,10 @@ pub enum ConfigError {
     InvalidValue { key: String, reason: String },
 }
 
-// src/error.rs  (crate-level)
+// src/error.rs  (уровень пакета)
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
-    #[error(transparent)]               // delegates Display to inner error
+    #[error(transparent)]               // делегирует Display внутреннему типу ошибки
     Config(#[from] crate::config::ConfigError),
 
     #[error("I/O error: {0}")]
@@ -218,7 +214,7 @@ pub enum Error {
 pub type Result<T> = core::result::Result<T, Error>;
 ```
 
-Callers can still match on specific config errors:
+Вызывающий код по-прежнему может сопоставлять конкретные ошибки конфигурации:
 
 ```rust
 match result {
@@ -228,14 +224,12 @@ match result {
 }
 ```
 
-### C++ comparison
+### Сравнение с C++
 
-| Concept | C++ | Rust |
+| Концепция | C++ | Rust |
 |---------|-----|------|
-| Error hierarchy | `class AppError : public std::runtime_error` | `#[derive(thiserror::Error)] enum Error { ... }` |
-| Return error | `std::expected<T, Error>` or `throw` | `fn foo() -> Result<T>` |
-| Convert error | Manual `try/catch` + rethrow | `#[from]` + `?` — zero boilerplate |
-| Result alias | `template<class T> using Result = std::expected<T, Error>;` | `pub type Result<T> = core::result::Result<T, Error>;` |
-| Error message | Override `what()` | `#[error("...")]` — compiled into `Display` impl |
-
-
+| Иерархия ошибок | `class AppError : public std::runtime_error` | `#[derive(thiserror::Error)] enum Error { ... }` |
+| Возврат ошибки | `std::expected<T, Error>` или `throw` | `fn foo() -> Result<T>` |
+| Преобразование ошибки | Ручной блок `try/catch` + повторный выброс исключения | `#[from]` + `?` — полное отсутствие шаблонного кода |
+| Псевдоним Result | `template<class T> using Result = std::expected<T, Error>;` | `pub type Result<T> = core::result::Result<T, Error>;` |
+| Сообщение об ошибке | Переопределение `what()` | `#[error("...")]` — преобразуется в реализацию типажа `Display` |

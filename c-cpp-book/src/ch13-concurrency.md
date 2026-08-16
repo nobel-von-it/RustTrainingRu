@@ -1,12 +1,12 @@
-# Rust concurrency
+# Многопоточность и конкурентность в Rust
 
-> **What you'll learn:** Rust's concurrency model — threads, `Send`/`Sync` marker traits, `Mutex<T>`, `Arc<T>`, channels, and how the compiler prevents data races at compile time. No runtime overhead for thread safety you don't use.
+> **Чему вы научитесь:** Модель многопоточности и конкурентности в Rust — потоки, маркерные трейты `Send`/`Sync`, `Mutex<T>`, `Arc<T>`, каналы, а также то, как компилятор предотвращает состояние гонки (data races) на этапе компиляции. Никаких накладных расходов во время выполнения на безопасность потоков, которую вы не используете.
 
-- Rust has built-in support for concurrency, similar to `std::thread` in C++
-    - Key difference: Rust **prevents data races at compile time** through `Send` and `Sync` marker traits
-    - In C++, sharing a `std::vector` across threads without a mutex is UB but compiles fine. In Rust, it won't compile.
-    - `Mutex<T>` in Rust wraps the **data**, not just the access — you literally cannot read the data without locking
-- The `thread::spawn()` can be used to create a separate thread that executes the closure `||` in parallel
+- В Rust есть встроенная поддержка многопоточности, аналогичная `std::thread` в C++.
+    - Ключевое отличие: Rust **предотвращает состояние гонки за данные (data races) во время компиляции** с помощью маркерных трейтов `Send` и `Sync`.
+    - В C++ совместное использование `std::vector` между потоками без мьютекса приводит к неопределенному поведению (UB), но отлично компилируется. В Rust такой код не скомпилируется.
+    - `Mutex<T>` в Rust оборачивает **сами данные**, а не просто доступ к ним — вы буквально не можете прочитать данные без захвата блокировки.
+- Функция `thread::spawn()` используется для создания отдельного потока, который выполняет замыкание `||` параллельно.
 ```rust
 use std::thread;
 use std::time::Duration;
@@ -23,13 +23,13 @@ fn main() {
         thread::sleep(Duration::from_millis(5));
     }
 
-    handle.join().unwrap(); // The handle.join() ensures that the spawned thread exits
+    handle.join().unwrap(); // Вызов handle.join() гарантирует, что порожденный поток завершит работу
 }
 ```
 
-# Rust concurrency
-- ```thread::scope()``` can be used in cases where it is necessary to borrow from the environment. This works because ```thread::scope``` waits until the internal thread returns
-- Try executing this exercise without ```thread::scope``` to see the issue
+# Конкурентность в Rust
+- Функция `thread::scope()` может использоваться в тех случаях, когда необходимо заимствовать переменные из окружения. Это работает, так как `thread::scope` ожидает возврата управления из внутреннего потока.
+- Попробуйте выполнить это упражнение без `thread::scope`, чтобы увидеть возникающую проблему.
 ```rust
 use std::thread;
 fn main() {
@@ -44,8 +44,8 @@ fn main() {
 }
 ```
 ----
-# Rust concurrency
-- We can also use ```move``` to transfer ownership to the thread. For `Copy` types like `[i32; 3]`, the `move` keyword copies the data into the closure, and the original remains usable
+# Конкурентность в Rust
+- Мы также можем использовать ключевое слово `move` для передачи владения потоку. Для типов с трейтом `Copy`, таких как `[i32; 3]`, ключевое слово `move` копирует данные в замыкание, а оригинал остается доступным для дальнейшего использования.
 ```rust
 use std::thread;
 fn main() {
@@ -55,15 +55,15 @@ fn main() {
         println!("{x}");
       }
   });
-  a[0] = 42;    // Doesn't affect the copy sent to the thread
+  a[0] = 42;    // Не влияет на копию, переданную в поток
   handle.join().unwrap();
 }
 ```
 
-# Rust concurrency
-- ```Arc<T>``` can be used to share *read-only* references between multiple threads
-    - ```Arc``` stands for Atomic Reference Counted. The reference isn't released until the reference count reaches 0
-    - ```Arc::clone()``` simply increases the reference count without cloning the data
+# Конкурентность in Rust
+- `Arc<T>` можно использовать для совместного использования ссылок *только для чтения* между несколькими потоками.
+    - `Arc` расшифровывается как Atomic Reference Counted (атомарный подсчет ссылок). Объект в памяти освобождается только тогда, когда счетчик ссылок становится равным 0.
+    - `Arc::clone()` просто увеличивает счетчик ссылок без клонирования самих данных.
 ```rust
 use std::sync::Arc;
 use std::thread;
@@ -80,10 +80,10 @@ fn main() {
 }
 ```
 
-# Rust concurrency
-- ```Arc<T>``` can be combined with ```Mutex<T>``` to provide mutable references.
-    - ```Mutex``` guards the protected data and ensures that only the thread holding the lock has access.
-    - The `MutexGuard` is automatically released when it goes out of scope (RAII). Note: `std::mem::forget` can still leak a guard — so "impossible to forget to unlock" is more accurate than "impossible to leak."
+# Конкурентность в Rust
+- `Arc<T>` можно комбинировать с `Mutex<T>` для предоставления изменяемых ссылок.
+    - `Mutex` защищает лежащие в нем данные и гарантирует, что доступ имеет только тот поток, который удерживает блокировку.
+    - Блокировка `MutexGuard` автоматически освобождается, когда она выходит из области видимости (RAII). Примечание: с помощью `std::mem::forget` все еще можно утечь блокировку, поэтому фраза «невозможно забыть разблокировать» точнее, чем «невозможно утечь» (leak).
 ```rust
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -97,7 +97,7 @@ fn main() {
         handles.push(thread::spawn(move || {
             let mut num = counter.lock().unwrap();
             *num += 1;
-            // MutexGuard dropped here — lock released automatically
+            // Здесь MutexGuard выходит из области видимости — блокировка снимается автоматически
         }));
     }
 
@@ -106,14 +106,14 @@ fn main() {
     }
 
     println!("Final count: {}", *counter.lock().unwrap());
-    // Output: Final count: 5
+    // Вывод: Final count: 5
 }
 ```
 
-# Rust concurrency: RwLock
-- `RwLock<T>` allows **multiple concurrent readers** or **one exclusive writer** — the read/write lock pattern from C++ (`std::shared_mutex`)
-    - Use `RwLock` when reads far outnumber writes (e.g., configuration, caches)
-    - Use `Mutex` when read/write frequency is similar or critical sections are short
+# Конкурентность в Rust: RwLock
+- `RwLock<T>` разрешает **несколько параллельных читателей** или **одного монопольного писателя** — паттерн блокировки чтения/записи (read/write lock), аналогичный `std::shared_mutex` в C++.
+    - Используйте `RwLock`, когда количество операций чтения значительно превышает количество операций записи (например, настройки, кэши).
+    - Используйте `Mutex`, когда частота чтения и записи сопоставима или критические секции коротки.
 ```rust
 use std::sync::{Arc, RwLock};
 use std::thread;
@@ -122,20 +122,20 @@ fn main() {
     let config = Arc::new(RwLock::new(String::from("v1.0")));
     let mut handles = Vec::new();
 
-    // Spawn 5 readers — all can run concurrently
+    // Создаем 5 читателей — все они могут работать параллельно
     for i in 0..5 {
         let config = Arc::clone(&config);
         handles.push(thread::spawn(move || {
-            let val = config.read().unwrap();  // Multiple readers OK
+            let val = config.read().unwrap();  // Несколько читателей работают одновременно
             println!("Reader {i}: {val}");
         }));
     }
 
-    // One writer — blocks until all readers finish
+    // Один писатель — блокирует работу до тех пор, пока все читатели не закончат
     {
         let config = Arc::clone(&config);
         handles.push(thread::spawn(move || {
-            let mut val = config.write().unwrap();  // Exclusive access
+            let mut val = config.write().unwrap();  // Эксклюзивный доступ
             *val = String::from("v2.0");
             println!("Writer: updated to {val}");
         }));
@@ -147,11 +147,11 @@ fn main() {
 }
 ```
 
-# Rust concurrency: Mutex poisoning
-- If a thread **panics** while holding a `Mutex` or `RwLock`, the lock becomes **poisoned**
-    - Subsequent calls to `.lock()` return `Err(PoisonError)` — the data may be in an inconsistent state
-    - You can recover with `.into_inner()` if you're confident the data is still valid
-    - This has no C++ equivalent — `std::mutex` has no poisoning concept; a panicking thread just leaves the lock held
+# Конкурентность в Rust: отравление мьютексов (Mutex poisoning)
+- Если поток **паникует** во время удержания `Mutex` или `RwLock`, блокировка становится **отравленной** (poisoned).
+    - Последующие вызовы метода `.lock()` возвращают `Err(PoisonError)`, так как данные могли остаться в несогласованном состоянии.
+    - Вы можете восстановить доступ с помощью `.into_inner()`, если уверены, что данные по-прежнему валидны.
+    - В C++ нет эквивалента — у `std::mutex` нет концепции отравления; паникующий поток просто оставляет блокировку захваченной (в случае вызова abort/panic).
 ```rust
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -163,27 +163,27 @@ fn main() {
     let handle = thread::spawn(move || {
         let mut guard = data2.lock().unwrap();
         guard.push(4);
-        panic!("oops!");  // Lock is now poisoned
+        panic!("oops!");  // Блокировка теперь отравлена
     });
 
-    let _ = handle.join();  // Thread panicked
+    let _ = handle.join();  // Поток запаниковал
 
-    // Subsequent lock attempts return Err(PoisonError)
+    // Последующие попытки заблокировать возвращают Err(PoisonError)
     match data.lock() {
         Ok(guard) => println!("Data: {guard:?}"),
         Err(poisoned) => {
             println!("Lock was poisoned! Recovering...");
-            let guard = poisoned.into_inner();  // Access data anyway
-            println!("Recovered data: {guard:?}");  // [1, 2, 3, 4] — push succeeded before panic
+            let guard = poisoned.into_inner();  // Получить доступ к данным в любом случае
+            println!("Recovered data: {guard:?}");  // [1, 2, 3, 4] — добавление в вектор (push) произошло до паники
         }
     }
 }
 ```
 
-# Rust concurrency: Atomics
-- For simple counters and flags, `std::sync::atomic` types avoid the overhead of a `Mutex`
-    - `AtomicBool`, `AtomicI32`, `AtomicU64`, `AtomicUsize`, etc.
-    - Equivalent to C++ `std::atomic<T>` — same memory ordering model (`Relaxed`, `Acquire`, `Release`, `SeqCst`)
+# Конкурентность в Rust: Атомарные типы (Atomics)
+- Для простых счетчиков и флагов типы из модуля `std::sync::atomic` позволяют избежать накладных расходов на `Mutex`.
+    - `AtomicBool`, `AtomicI32`, `AtomicU64`, `AtomicUsize` и т.д.
+    - Эквивалентно `std::atomic<T>` в C++ — та же модель упорядочения памяти (`Relaxed`, `Acquire`, `Release`, `SeqCst`).
 ```rust
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
@@ -207,22 +207,22 @@ fn main() {
     }
 
     println!("Counter: {}", counter.load(Ordering::SeqCst));
-    // Output: Counter: 10000
+    // Вывод: Counter: 10000
 }
 ```
 
-| Primitive | When to use | C++ equivalent |
+| Примитив | Когда использовать | Эквивалент в C++ |
 |-----------|-------------|----------------|
-| `Mutex<T>` | General mutable shared state | `std::mutex` + manual data association |
-| `RwLock<T>` | Read-heavy workloads | `std::shared_mutex` |
-| `Atomic*` | Simple counters, flags, lock-free patterns | `std::atomic<T>` |
-| `Condvar` | Wait for a condition to become true | `std::condition_variable` |
+| `Mutex<T>` | Общее изменяемое состояние общего доступа | `std::mutex` + ручное связывание с данными |
+| `RwLock<T>` | Нагрузки с преобладанием чтения | `std::shared_mutex` |
+| `Atomic*` | Простые счетчики, флаги, неблокирующие паттерны | `std::atomic<T>` |
+| `Condvar` | Ожидание выполнения некоторого условия | `std::condition_variable` |
 
-# Rust concurrency: Condvar
-- `Condvar` (condition variable) lets a thread **sleep until another thread signals** that a condition has changed
-    - Always paired with a `Mutex` — the pattern is: lock, check condition, wait if not ready, act when ready
-    - Equivalent to C++ `std::condition_variable` / `std::condition_variable::wait`
-    - Handles **spurious wakeups** — always re-check the condition in a loop (or use `wait_while`/`wait_until`)
+# Конкурентность в Rust: Переменные условий (Condvar)
+- `Condvar` (condition variable, переменная условия) позволяет потоку **заснуть до тех пор, пока другой поток не просигнализирует**, что состояние изменилось.
+    - Всегда работает в паре с `Mutex`. Паттерн выглядит так: блокировка мьютекса, проверка условия, ожидание в случае неготовности, выполнение действий при готовности.
+    - Эквивалентно `std::condition_variable` / `std::condition_variable::wait` в C++.
+    - Защищает от **ложных пробуждений** (spurious wakeups) — всегда перепроверяйте условие в цикле (или используйте `wait_while`/`wait_until`).
 ```rust
 use std::sync::{Arc, Condvar, Mutex};
 use std::thread;
@@ -230,37 +230,37 @@ use std::thread;
 fn main() {
     let pair = Arc::new((Mutex::new(false), Condvar::new()));
 
-    // Spawn a worker that waits for a signal
+    // Создаем рабочий поток (worker), который ждет сигнала
     let pair2 = Arc::clone(&pair);
     let worker = thread::spawn(move || {
         let (lock, cvar) = &*pair2;
         let mut ready = lock.lock().unwrap();
-        // wait: sleeps until signaled (always re-check in a loop for spurious wakeups)
+        // wait: засыпает до получения сигнала (всегда перепроверяйте в цикле из-за ложных пробуждений)
         while !*ready {
             ready = cvar.wait(ready).unwrap();
         }
         println!("Worker: condition met, proceeding!");
     });
 
-    // Main thread does some work, then signals the worker
+    // Главный поток выполняет работу, а затем сигнализирует воркеру
     thread::sleep(std::time::Duration::from_millis(100));
     {
         let (lock, cvar) = &*pair;
         let mut ready = lock.lock().unwrap();
         *ready = true;
-        cvar.notify_one();  // Wake one waiting thread (notify_all() wakes all)
+        cvar.notify_one();  // Будим один ожидающий поток (notify_all() будит все)
     }
 
     worker.join().unwrap();
 }
 ```
 
-> **When to use Condvar vs channels:** Use `Condvar` when threads share mutable state and need to wait for a condition on that state (e.g., "buffer not empty"). Use channels (`mpsc`) when threads need to pass *messages*. Channels are generally easier to reason about.
+> **Когда использовать Condvar, а когда каналы:** Используйте `Condvar`, когда потоки совместно используют изменяемое состояние и должны ожидать выполнения некоторого условия на этом состоянии (например, «буфер не пуст»). Используйте каналы (`mpsc`), когда потокам нужно обмениваться *сообщениями*. О логике каналов обычно проще рассуждать.
 
-# Rust concurrency
-- Rust channels can be used to exchange messages between ```Sender``` and ```Receiver```
-    - This uses a paradigm called ```mpsc``` or ```Multi-producer, Single-Consumer```
-    - Both ```send()``` and ```recv()``` can block the thread
+# Конкурентность в Rust
+- Каналы в Rust могут использоваться для обмена сообщениями между отправителем (`Sender`) и получателем (`Receiver`).
+    - Используется парадигма под названием `mpsc` (Multi-producer, Single-Consumer — множество производителей, один потребитель).
+    - Как `send()`, так и `recv()` могут блокировать поток.
 ```rust
 use std::sync::mpsc;
 
@@ -279,8 +279,8 @@ fn main() {
 }
 ```
 
-# Rust concurrency
-- Channels can be combined with threads
+# Конкурентность в Rust
+- Каналы можно сочетать с потоками
 ```rust
 use std::sync::mpsc;
 use std::thread;
@@ -300,7 +300,7 @@ fn main() {
         });
     }
 
-        // Drop the original sender so rx.iter() terminates when all cloned senders are dropped
+    // Удаляем оригинальный отправитель, чтобы rx.iter() завершился, когда все клонированные отправители будут уничтожены
     drop(tx);
 
     thread::sleep(Duration::from_millis(100));
@@ -313,34 +313,34 @@ fn main() {
 
 
 
-## Why Rust prevents data races: Send and Sync
+## Почему Rust предотвращает гонки за данные: Send и Sync
 
-- Rust uses two marker traits to enforce thread safety at compile time:
-    - `Send`: A type is `Send` if it can be safely **transferred** to another thread
-    - `Sync`: A type is `Sync` if it can be safely **shared** (via `&T`) between threads
-- Most types are automatically `Send + Sync`. Notable exceptions:
-    - `Rc<T>` is **neither** Send nor Sync (use `Arc<T>` for threads)
-    - `Cell<T>` and `RefCell<T>` are **not** Sync (use `Mutex<T>` or `RwLock<T>`)
-    - Raw pointers (`*const T`, `*mut T`) are **neither** Send nor Sync
-- This is why the compiler stops you from using `Rc<T>` across threads -- it literally doesn't implement `Send`
-- `Arc<Mutex<T>>` is the thread-safe equivalent of `Rc<RefCell<T>>`
+- Rust использует два маркерных трейта для обеспечения потокобезопасности на этапе компиляции:
+    - `Send`: Тип является `Send`, если его значение можно безопасно **передать** в другой поток.
+    - `Sync`: Тип является `Sync`, если им можно безопасно **делиться** (через ссылку `&T`) между потоками.
+- Большинство типов автоматически реализуют `Send + Sync`. Известные исключения:
+    - `Rc<T>` не является ни Send, ни Sync (используйте `Arc<T>` для потоков).
+    - `Cell<T>` и `RefCell<T>` не являются `Sync` (используйте `Mutex<T>` или `RwLock<T>`).
+    - Сырые указатели (`*const T`, `*mut T`) не являются ни Send, ни Sync.
+- Именно поэтому компилятор не позволяет вам использовать `Rc<T>` между потоками — он просто не реализует трейт `Send`.
+- `Arc<Mutex<T>>` — это потокобезопасный эквивалент для `Rc<RefCell<T>>`.
 
-> **Intuition** *(Jon Gjengset)*: Think of values as toys.
-> **`Send`** = you can **give your toy away** to another child (thread) — transferring ownership is safe.
-> **`Sync`** = you can **let others play with your toy at the same time** — sharing a reference is safe.
-> An `Rc<T>` has a fragile (non-atomic) reference counter; handing it off or sharing it would corrupt the count, so it is neither `Send` nor `Sync`.
+> **Интуитивное понимание (от Джона Дженгсета):** Представьте значения в виде игрушек.
+> **`Send`** = вы можете **отдать свою игрушку** другому ребенку (потоку) — передача владения безопасна.
+> **`Sync`** = вы можете **разрешить другим играть с вашей игрушкой** одновременно — совместное использование по ссылке безопасно.
+> Тип `Rc<T>` имеет хрупкий (неатомарный) счетчик ссылок; его передача или совместное использование приведет к повреждению счетчика, поэтому он не является ни `Send`, ни `Sync`.
 
 
-# Exercise: Multi-threaded word count
+# Упражнение: Многопоточный подсчет слов
 
-🔴 **Challenge** — combines threads, Arc, Mutex, and HashMap
+🔴 **Сложная задача** — сочетает в себе потоки, Arc, Mutex и HashMap
 
-- Given a `Vec<String>` of text lines, spawn one thread per line to count the words in that line
-- Use `Arc<Mutex<HashMap<String, usize>>>` to collect results
-- Print the total word count across all lines
-- **Bonus**: Try implementing this with channels (`mpsc`) instead of shared state
+- Дана коллекция `Vec<String>` текстовых строк. Породите по одному потоку на каждую строку для подсчета слов в ней.
+- Используйте `Arc<Mutex<HashMap<String, usize>>>` для сбора результатов.
+- Выведите общее количество слов по всем строкам.
+- **Бонус**: Попробуйте реализовать это с помощью каналов (`mpsc`) вместо разделяемого состояния.
 
-<details><summary>Solution (click to expand)</summary>
+<details><summary>Решение (нажмите, чтобы раскрыть)</summary>
 
 ```rust
 use std::collections::HashMap;
@@ -378,7 +378,7 @@ fn main() {
     println!("Word frequencies: {counts:#?}");
     println!("Total words: {total}");
 }
-// Output (order may vary):
+// Вывод (порядок может отличаться):
 // Word frequencies: {
 //     "the": 3,
 //     "quick": 2,
@@ -394,5 +394,3 @@ fn main() {
 ```
 
 </details>
-
-
