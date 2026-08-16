@@ -49,23 +49,32 @@ struct Slice<'a, T> {
 use std::cell::RefCell;
 use std::marker::PhantomData;
 
-/// Дескриптор, валидный только в течение времени жизни определенной арены
+/// Дескриптор, брендированный к конкретному экземпляру арены.
+/// Инвариантен по 'arena — предотвращает использование дескриптора из одной арены в другой.
 struct ArenaHandle<'arena> {
     index: usize,
-    _brand: PhantomData<&'arena ()>,
+    _brand: PhantomData<*mut &'arena ()>,
 }
 
-struct Arena {
+/// Арена, брендирующая каждый дескриптор своим уникальным временем жизни.
+struct Arena<'arena> {
     data: RefCell<Vec<String>>,
+    _phantom: PhantomData<&'arena ()>,
 }
 
-impl Arena {
-    fn new() -> Self {
-        Arena { data: RefCell::new(Vec::new()) }
-    }
+/// Создает арену и передает ее в замыкание.
+/// Каждый вызов получает уникальное, непрозрачное время жизни, которое невозможно подделать.
+fn with_arena<R>(f: impl for<'arena> FnOnce(&Arena<'arena>) -> R) -> R {
+    let arena = Arena {
+        data: RefCell::new(Vec::new()),
+        _phantom: PhantomData,
+    };
+    f(&arena)
+}
 
+impl<'arena> Arena<'arena> {
     /// Выделить память под строку и вернуть брендированный дескриптор
-    fn alloc(&self, value: String) -> ArenaHandle<'_> {
+    fn alloc(&self, value: String) -> ArenaHandle<'arena> {
         let mut data = self.data.borrow_mut();
         let index = data.len();
         data.push(value);
@@ -73,21 +82,22 @@ impl Arena {
     }
 
     /// Поиск по дескриптору — принимает только дескрипторы из ЭТОЙ арены
-    fn get<'a>(&'a self, handle: ArenaHandle<'a>) -> String {
+    fn get(&self, handle: &ArenaHandle<'arena>) -> String {
         let data = self.data.borrow();
         data[handle.index].clone()
     }
 }
 
 fn main() {
-    let arena1 = Arena::new();
-    let handle1 = arena1.alloc("hello".to_string());
+    with_arena(|arena1| {
+        let handle1 = arena1.alloc("hello".to_string());
+        println!("{}", arena1.get(&handle1)); // ✅
 
-    // Нельзя использовать handle1 с другой ареной — времена жизни не совпадут
-    // let arena2 = Arena::new();
-    // arena2.get(handle1); // ❌ Несовпадение времени жизни (lifetime mismatch)
-
-    println!("{}", arena1.get(handle1)); // ✅
+        // Нельзя использовать handle1 с другой ареной — ошибка компиляции
+        // with_arena(|arena2| {
+        //     arena2.get(&handle1); // ❌ заимствованные данные выходят за пределы замыкания
+        // });
+    });
 }
 ```
 
