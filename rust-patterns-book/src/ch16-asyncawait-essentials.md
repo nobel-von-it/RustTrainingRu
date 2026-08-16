@@ -1,40 +1,36 @@
-# 16. Async/Await Essentials 🔴
+# 16. Основы Async/Await 🔴
 
-> **What you'll learn:**
-> - How Rust's `Future` trait differs from Go's goroutines and Python's asyncio
-> - Tokio quick-start: spawning tasks, `join!`, and runtime configuration
-> - Common async pitfalls and how to fix them
-> - When to offload blocking work with `spawn_blocking`
+> **Что вы узнаете:**
+> - Чем модель асинхронности в Rust (`Future`) отличается от горутин в Go и `asyncio` в Python
+> - Быстрый старт с Tokio: спавн задач (spawning tasks), `join!` и конфигурация рантайма
+> - Распространенные ошибки в асинхронном программировании и способы их исправления
+> - Когда нужно переносить блокирующую работу в пул с помощью `spawn_blocking`
 
-## Futures, Runtimes, and `async fn`
+## Futures, рантаймы и `async fn`
 
-Rust's async model is *fundamentally different* from Go's goroutines or Python's `asyncio`.
-Understanding three concepts is enough to get started:
+Асинхронная модель Rust *принципиально отличается* от горутин в Go или библиотеки `asyncio` в Python. Для начала работы достаточно понять три концепции:
 
-1. **A `Future` is a lazy state machine** — calling `async fn` doesn't execute anything;
-   it returns a `Future` that must be polled.
-2. **You need a runtime** to poll futures — `tokio`, `async-std`, or `smol`.
-   The standard library defines `Future` but provides no runtime.
-3. **`async fn` is sugar** — the compiler transforms it into a state machine that
-   implements `Future`.
+1. **`Future` — это ленивый конечный автомат**. Вызов `async fn` ничего не запускает на выполнение, он возвращает `Future` (будущее значение), которое необходимо опрашивать (poll).
+2. **Для опроса futures необходим рантайм** (вычислитель/планировщик) — такой как `tokio`, `async-std` или `smol`. Стандартная библиотека описывает типаж `Future`, но не предоставляет встроенного рантайма.
+3. **`async fn` — это синтаксический сахар**. Компилятор преобразует такую функцию в конечный автомат, реализующий типаж `Future`.
 
 ```rust
-// A Future is just a trait:
+// Future — это просто типаж (trait):
 pub trait Future {
     type Output;
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output>;
 }
 
-// async fn desugars to:
+// async fn раскрывается (desugar) в:
 // fn fetch_data(url: &str) -> impl Future<Output = Result<Vec<u8>, Error>>
 async fn fetch_data(url: &str) -> Result<Vec<u8>, reqwest::Error> {
-    let response = reqwest::get(url).await?;  // .await yields until ready
+    let response = reqwest::get(url).await?;  // .await приостанавливает выполнение до готовности
     let bytes = response.bytes().await?;
     Ok(bytes.to_vec())
 }
 ```
 
-### Tokio Quick Start
+### Быстрый старт с Tokio
 
 ```toml
 # Cargo.toml
@@ -48,56 +44,55 @@ use tokio::task;
 
 #[tokio::main]
 async fn main() {
-    // Spawn concurrent tasks (like lightweight threads):
+    // Спавн конкурентных задач (подобно легковесным потокам):
     let handle_a = task::spawn(async {
         sleep(Duration::from_millis(100)).await;
-        "task A done"
+        "задача A завершена"
     });
 
     let handle_b = task::spawn(async {
         sleep(Duration::from_millis(50)).await;
-        "task B done"
+        "задача B завершена"
     });
 
-    // .await both — they run concurrently, not sequentially:
+    // Ожидаем выполнение обеих задач с помощью .await — они работают конкурентно, а не последовательно:
     let (a, b) = tokio::join!(handle_a, handle_b);
     println!("{}, {}", a.unwrap(), b.unwrap());
 }
 ```
 
-### Async Common Pitfalls
+### Распространенные ошибки в асинхронном коде
 
-| Pitfall | Why It Happens | Fix |
+| Ошибка | Почему происходит | Как исправить |
 |---------|---------------|-----|
-| Blocking in async | `std::thread::sleep` or CPU work blocks the executor | Use `tokio::task::spawn_blocking` or `rayon` |
-| `Send` bound errors | Future held across `.await` contains `!Send` type (e.g., `Rc`, `MutexGuard`) | Restructure to drop non-Send values before `.await` |
-| Future not polled | Calling `async fn` without `.await` or spawning — nothing happens | Always `.await` or `tokio::spawn` the returned future |
-| Holding `MutexGuard` across `.await` | `std::sync::MutexGuard` is `!Send`; async tasks may resume on different thread | Use `tokio::sync::Mutex` or drop the guard before `.await` |
-| Accidental sequential execution | `let a = foo().await; let b = bar().await;` runs sequentially | Use `tokio::join!` or `tokio::spawn` for concurrency |
+| Блокировки в асинхронном коде | `std::thread::sleep` или вычисления на CPU блокируют исполнитель (executor) | Используйте `tokio::task::spawn_blocking` или `rayon` |
+| Ошибки ограничения `Send` | Future, удерживаемая между точками `.await`, содержит тип `!Send` (например, `Rc`, `MutexGuard`) | Измените структуру кода, чтобы сбросить (drop) значения `!Send` перед вызовом `.await` |
+| Future не опрашивается | Вызов `async fn` без `.await` или спавна — ничего не происходит | Всегда используйте `.await` или передавайте полученную future в `tokio::spawn` |
+| Удержание `MutexGuard` во время `.await` | Ссылочный `std::sync::MutexGuard` является `!Send`; асинхронные задачи могут возобновляться в другом потоке | Используйте `tokio::sync::Mutex` или сбрасывайте гард перед точкой `.await` |
+| Случайное последовательное выполнение | Конструкция `let a = foo().await; let b = bar().await;` выполняется последовательно | Используйте `tokio::join!` или `tokio::spawn` для конкурентности |
 
 ```rust
-// ❌ Blocking the async executor:
+// ❌ Блокирование асинхронного исполнителя (executor):
 async fn bad() {
-    std::thread::sleep(std::time::Duration::from_secs(5)); // Blocks entire thread!
+    std::thread::sleep(std::time::Duration::from_secs(5)); // Блокирует весь поток!
 }
 
-// ✅ Offload blocking work:
+// ✅ Вынос блокирующей работы в пул:
 async fn good() {
     tokio::task::spawn_blocking(|| {
-        std::thread::sleep(std::time::Duration::from_secs(5)); // Runs on blocking pool
+        std::thread::sleep(std::time::Duration::from_secs(5)); // Выполняется в пуле блокирующих задач
     }).await.unwrap();
 }
 ```
 
-> **Comprehensive async coverage**: For `Stream`, `select!`, cancellation safety,
-> structured concurrency, and `tower` middleware, see our dedicated
-> **Async Rust Training** guide. This section covers just enough to read and
-> write basic async code.
+> **Комплексное руководство по асинхронности**: Подробную информацию о `Stream`, `select!`, безопасности отмены,
+> структурированной конкурентности и middleware `tower` см. в нашем специализированном
+> руководстве **Async Rust Training**. Этот раздел охватывает лишь необходимый минимум для чтения и
+> написания простого асинхронного кода.
 
-### Spawning and Structured Concurrency
+### Спавн задач и структурированная конкурентность
 
-Tokio's `spawn` creates a new asynchronous task — similar to `thread::spawn` but
-much lighter:
+Функция `spawn` в Tokio создает новую асинхронную задачу — аналогично `thread::spawn`, но гораздо легче:
 
 ```rust,ignore
 use tokio::task;
@@ -105,23 +100,23 @@ use tokio::time::{sleep, Duration};
 
 #[tokio::main]
 async fn main() {
-    // Spawn three concurrent tasks
+    // Спавним три конкурентные задачи
     let h1 = task::spawn(async {
         sleep(Duration::from_millis(200)).await;
-        "fetched user profile"
+        "профиль пользователя получен"
     });
 
     let h2 = task::spawn(async {
         sleep(Duration::from_millis(100)).await;
-        "fetched order history"
+        "история заказов получена"
     });
 
     let h3 = task::spawn(async {
         sleep(Duration::from_millis(150)).await;
-        "fetched recommendations"
+        "рекомендации получены"
     });
 
-    // Wait for all three concurrently (not sequentially!)
+    // Ожидаем завершения всех трех задач конкурентно (не последовательно!)
     let (r1, r2, r3) = tokio::join!(h1, h2, h3);
     println!("{}", r1.unwrap());
     println!("{}", r2.unwrap());
@@ -129,85 +124,80 @@ async fn main() {
 }
 ```
 
-**`join!` vs `try_join!` vs `select!`**:
+**Сравнение `join!`, `try_join!` и `select!`**:
 
-| Macro | Behavior | Use when |
+| Макрос | Поведение | Когда использовать |
 |-------|----------|----------|
-| `join!` | Waits for ALL futures | All tasks must complete |
-| `try_join!` | Waits for all, short-circuits on first `Err` | Tasks return `Result` |
-| `select!` | Returns when FIRST future completes | Timeouts, cancellation |
+| `join!` | Ожидает завершения ВСЕХ futures | Все задачи должны успешно завершиться |
+| `try_join!` | Ожидает все, но прерывается при первой ошибке `Err` | Задачи возвращают тип `Result` |
+| `select!` | Возвращает управление, когда завершается ПЕРВАЯ future | Таймауты, отмена операций |
 
 ```rust,ignore
 use tokio::time::{timeout, Duration};
 
 async fn fetch_with_timeout() -> Result<String, Box<dyn std::error::Error>> {
     let result = timeout(Duration::from_secs(5), async {
-        // Simulate slow network call
+        // Симулируем медленный сетевой вызов
         tokio::time::sleep(Duration::from_millis(100)).await;
         Ok::<_, Box<dyn std::error::Error>>("data".to_string())
-    }).await??; // First ? unwraps Elapsed, second ? unwraps inner Result
+    }).await??; // Первый ? разворачивает Elapsed, второй ? разворачивает внутренний Result
 
     Ok(result)
 }
 ```
 
-### `Send` Bounds and Why Futures Must Be `Send`
+### Ограничение `Send` и почему Futures должны быть `Send`
 
-When you `tokio::spawn` a future, it may resume on a different OS thread.
-This means the future must be `Send`. Common pitfalls:
+Когда вы запускаете future через `tokio::spawn`, её выполнение может возобновиться в другом потоке ОС. Это означает, что будущий результат должен реализовывать `Send`. Типичные ошибки:
 
 ```rust,ignore
 use std::rc::Rc;
 
 async fn not_send() {
-    let rc = Rc::new(42); // Rc is !Send
+    let rc = Rc::new(42); // Rc реализует !Send
     tokio::time::sleep(std::time::Duration::from_millis(10)).await;
-    println!("{}", rc); // rc is held across .await — future is !Send
+    println!("{}", rc); // rc удерживается между точками .await — future является !Send
 }
 
-// Fix 1: Drop before .await
+// Решение 1: Сбросить (drop) значение перед .await
 async fn fixed_drop() {
     let data = {
         let rc = Rc::new(42);
-        *rc // Copy the value out
-    }; // rc dropped here
+        *rc // Копируем значение наружу
+    }; // rc сбрасывается здесь
     tokio::time::sleep(std::time::Duration::from_millis(10)).await;
-    println!("{}", data); // Just an i32, which is Send
+    println!("{}", data); // Просто i32, который реализует Send
 }
 
-// Fix 2: Use Arc instead of Rc
+// Решение 2: Использовать Arc вместо Rc
 async fn fixed_arc() {
-    let arc = std::sync::Arc::new(42); // Arc is Send
+    let arc = std::sync::Arc::new(42); // Arc реализует Send
     tokio::time::sleep(std::time::Duration::from_millis(10)).await;
-    println!("{}", arc); // ✅ Future is Send
+    println!("{}", arc); // ✅ Future реализует Send
 }
 ```
 
-> **Comprehensive async coverage**: For `Stream`, `select!`, cancellation safety,
-> structured concurrency, and `tower` middleware, see our dedicated
-> **Async Rust Training** guide. This section covers just enough to read and
-> write basic async code.
+> **Комплексное руководство по асинхронности**: Подробную информацию о `Stream`, `select!`, безопасности отмены,
+> структурированной конкурентности и middleware `tower` см. в нашем специализированном
+> руководстве **Async Rust Training**. Этот раздел охватывает лишь необходимый минимум для чтения и
+> написания простого асинхронного кода.
 
-> **See also:** [Ch 5 — Channels](ch05-channels-and-message-passing.md) for synchronous channels. [Ch 6 — Concurrency](ch06-concurrency-vs-parallelism-vs-threads.md) for OS threads vs async tasks.
+> **См. также:** раздел [Глава 5 — Каналы](ch05-channels-and-message-passing.md) для синхронных каналов; [Глава 6 — Конкурентность](ch06-concurrency-vs-parallelism-vs-threads.md) для сравнения потоков ОС и асинхронных задач.
 
-> **Key Takeaways — Async**
-> - `async fn` returns a lazy `Future` — nothing runs until you `.await` or spawn it
-> - Use `tokio::task::spawn_blocking` for CPU-heavy or blocking work inside async contexts
-> - Don't hold `std::sync::MutexGuard` across `.await` — use `tokio::sync::Mutex` instead
-> - Futures must be `Send` when spawned — drop `!Send` types before `.await` points
+> **Основные выводы — Асинхронное программирование**
+> - `async fn` возвращает ленивую `Future` — выполнение не начнется до тех пор, пока вы не примените `.await` или не передадите её планировщику (spawn)
+> - Используйте `tokio::task::spawn_blocking` для ресурсоемких (CPU-bound) или блокирующих операций внутри асинхронного контекста
+> - Не удерживайте `std::sync::MutexGuard` между вызовами `.await` — используйте вместо него `tokio::sync::Mutex`
+> - Передаваемые планировщику futures должны быть `Send` — сбрасывайте (drop) типы `!Send` перед вызовами `.await`
 
 ---
 
-### Exercise: Concurrent Fetcher with Timeout ★★ (~25 min)
+### Упражнение: конкурентный загрузчик с таймаутом ★★ (~25 мин)
 
-Write an async function `fetch_all` that spawns three `tokio::spawn` tasks, each
-simulating a network call with `tokio::time::sleep`. Join all three with
-`tokio::try_join!` wrapped in `tokio::time::timeout(Duration::from_secs(5), ...)`.
-Return `Result<Vec<String>, ...>` or an error if any task fails or the deadline
-expires.
+Напишите асинхронную функцию `fetch_all`, которая запускает три задачи через `tokio::spawn`, каждая из которых симулирует сетевой запрос с помощью `tokio::time::sleep`. Объедините выполнение всех трех задач с помощью `tokio::try_join!`, обернув его в `tokio::time::timeout(Duration::from_secs(5), ...)`. Функция должна возвращать `Result<Vec<String>, ...>` или ошибку, если хотя бы одна задача завершилась неудачей или истек отведенный таймаут.
 
 <details>
-<summary>🔑 Solution</summary>
+<summary>🔑 Решение</summary>
 
 ```rust,ignore
 use tokio::time::{sleep, timeout, Duration};
@@ -243,4 +233,3 @@ async fn main() {
 </details>
 
 ***
-

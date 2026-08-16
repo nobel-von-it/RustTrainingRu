@@ -1,17 +1,17 @@
-# 14. Testing and Benchmarking Patterns 🟢
+# 14. Шаблоны тестирования и бенчмаркинга 🟢
 
-> **What you'll learn:**
-> - Rust's three test tiers: unit, integration, and doc tests
-> - Property-based testing with proptest for discovering edge cases
-> - Benchmarking with criterion for reliable performance measurement
-> - Mocking strategies without heavyweight frameworks
+> **Чему вы научитесь:**
+> - Три уровня тестирования в Rust: модульные (unit), интеграционные (integration) и док-тесты (doc tests)
+> - Тестирование на основе свойств (property-based testing) с помощью proptest для поиска крайних случаев (edge cases)
+> - Тестирование производительности (бенчмаркинг) с помощью criterion для надежного измерения быстродействия
+> - Стратегии создания заглушек (mocking) без тяжеловесных фреймворков
 
-## Unit Tests, Integration Tests, Doc Tests
+## Модульные, интеграционные и док-тесты
 
-Rust has three testing tiers built into the language:
+В Rust встроены три уровня тестирования:
 
 ```rust
-// --- Unit tests: in the same file as the code ---
+// --- Модульные тесты: пишутся в том же файле, что и код ---
 pub fn factorial(n: u64) -> u64 {
     (1..=n).product()
 }
@@ -22,7 +22,7 @@ mod tests {
 
     #[test]
     fn test_factorial_zero() {
-        // (1..=0).product() returns 1 — the multiplication identity for empty ranges
+        // (1..=0).product() возвращает 1 — нейтральный элемент умножения для пустых диапазонов
         assert_eq!(factorial(0), 1);
     }
 
@@ -32,19 +32,19 @@ mod tests {
     }
 
     #[test]
-    #[cfg(debug_assertions)] // overflow checks are only enabled in debug mode
+    #[cfg(debug_assertions)] // проверки переполнения включены только в отладочном (debug) режиме
     #[should_panic(expected = "overflow")]
     fn test_factorial_overflow() {
-        // ⚠️ This test only passes in debug mode (overflow checks enabled).
-        // In release mode (`cargo test --release`), u64 arithmetic wraps
-        // silently and no panic occurs. Use `checked_mul` or the
-        // `overflow-checks = true` profile setting for release-mode safety.
-        factorial(100); // Should panic on overflow
+        // ⚠️ Этот тест проходит только в отладочном режиме (проверки переполнения включены).
+        // В релизном режиме (`cargo test --release`) арифметика u64 циклически переполняется
+        // без вызова паники. Для безопасности в релизном режиме используйте `checked_mul` или
+        // настройку профиля `overflow-checks = true`.
+        factorial(100); // Должен вызвать панику при переполнении
     }
 
     #[test]
     fn test_with_result() -> Result<(), Box<dyn std::error::Error>> {
-        // Tests can return Result — ? works inside!
+        // Тесты могут возвращать Result — внутри работает оператор ?!
         let value: u64 = "42".parse()?;
         assert_eq!(value, 42);
         Ok(())
@@ -53,9 +53,9 @@ mod tests {
 ```
 
 ```rust
-// --- Integration tests: in tests/ directory ---
+// --- Интеграционные тесты: в директории tests/ ---
 // tests/integration_test.rs
-// These test your crate's PUBLIC API only
+// Они тестируют только ПУБЛИЧНЫЙ API вашего пакета
 
 use my_crate::factorial;
 
@@ -66,19 +66,19 @@ fn test_factorial_from_outside() {
 ```
 
 ```rust
-// --- Doc tests: in documentation comments ---
-/// Computes the factorial of `n`.
+// --- Doc tests: в документационных комментариях ---
+/// Вычисляет факториал числа `n`.
 ///
-/// # Examples
+/// # Примеры
 ///
 /// ```
 /// use my_crate::factorial;
 /// assert_eq!(factorial(5), 120);
 /// ```
 ///
-/// # Panics
+/// # Паника
 ///
-/// Panics if the result overflows `u64`.
+/// Вызывает панику, если результат переполняет `u64`.
 ///
 /// ```should_panic
 /// my_crate::factorial(100);
@@ -86,17 +86,17 @@ fn test_factorial_from_outside() {
 pub fn factorial(n: u64) -> u64 {
     (1..=n).product()
 }
-// Doc tests are compiled and run by `cargo test` — they keep examples honest.
+// Док-тесты компилируются и запускаются с помощью `cargo test` — они гарантируют актуальность примеров.
 ```
 
-### Test Fixtures and Setup
+### Фикстуры тестов и подготовка (Setup)
 
 ```rust
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    // Shared setup — create a helper function
+    // Общая подготовка — создаем вспомогательную функцию
     fn setup_database() -> TestDb {
         let db = TestDb::new_in_memory();
         db.run_migrations();
@@ -119,7 +119,7 @@ mod tests {
         assert!(db.get_user("Bob").is_none());
     }
 
-    // Cleanup with Drop (RAII):
+    // Очистка ресурсов с помощью Drop (RAII):
     struct TempDir {
         path: std::path::PathBuf,
     }
@@ -141,16 +141,16 @@ mod tests {
 
     #[test]
     fn test_file_operations() {
-        let dir = TempDir::new(); // Created
+        let dir = TempDir::new(); // Создан
         std::fs::write(dir.path.join("test.txt"), "hello").unwrap();
         assert!(dir.path.join("test.txt").exists());
-    } // dir dropped here → temp directory cleaned up
+    } // здесь dir удаляется из памяти (drop) → временная директория удаляется
 }
 ```
 
-### Property-Based Testing (proptest)
+### Тестирование на основе свойств (Property-Based Testing с proptest)
 
-Instead of testing specific values, test *properties* that should always hold:
+Вместо проверки конкретных значений проверяйте *свойства* (properties), которые должны соблюдаться всегда:
 
 ```rust
 // Cargo.toml: proptest = "1"
@@ -163,7 +163,7 @@ fn reverse(v: &[i32]) -> Vec<i32> {
 proptest! {
     #[test]
     fn test_reverse_twice_is_identity(v in prop::collection::vec(any::<i32>(), 0..100)) {
-        // Property: reversing twice gives back the original
+        // Свойство: двойной переворот возвращает исходный массив
         assert_eq!(reverse(&reverse(&v)), v);
     }
 
@@ -177,12 +177,12 @@ proptest! {
         v.sort();
         let sorted_once = v.clone();
         v.sort();
-        assert_eq!(v, sorted_once); // Sorting twice = sorting once
+        assert_eq!(v, sorted_once); // Сортировка дважды = сортировка один раз
     }
 
     #[test]
     fn test_parse_roundtrip(x in any::<f64>().prop_filter("finite", |x| x.is_finite())) {
-        // Property: formatting then parsing gives back the same value
+        // Свойство: форматирование с последующим разбором возвращает то же самое значение
         let s = format!("{x}");
         let parsed: f64 = s.parse().unwrap();
         prop_assert!((x - parsed).abs() < f64::EPSILON);
@@ -190,12 +190,12 @@ proptest! {
 }
 ```
 
-> **When to use proptest**: When you're testing a function with a large input
-> space and want confidence it works for edge cases you didn't think of.
-> proptest generates hundreds of random inputs and shrinks failures to the
-> minimal reproducing case.
+> **Когда использовать proptest**: Когда вы тестируете функцию с большим пространством входных
+> данных и хотите быть уверенными, что она обрабатывает крайние случаи, о которых вы даже не подумали.
+> proptest генерирует сотни случайных входных наборов и сокращает (shrinks) упавшие тесты до
+> минимального воспроизводящего примера.
 
-### Benchmarking with criterion
+### Тестирование производительности (бенчмаркинг) с помощью criterion
 
 ```rust
 // Cargo.toml:
@@ -221,7 +221,7 @@ fn bench_fibonacci(c: &mut Criterion) {
         b.iter(|| fibonacci(black_box(20)))
     });
 
-    // Compare different implementations:
+    // Сравнение различных реализаций:
     let mut group = c.benchmark_group("fibonacci_compare");
     for size in [10, 15, 20, 25] {
         group.bench_with_input(
@@ -236,16 +236,16 @@ fn bench_fibonacci(c: &mut Criterion) {
 criterion_group!(benches, bench_fibonacci);
 criterion_main!(benches);
 
-// Run: cargo bench
-// Produces HTML reports in target/criterion/
+// Запуск: cargo bench
+// Создает HTML-отчеты в папке target/criterion/
 ```
 
-### Mocking Strategies without Frameworks
+### Стратегии создания заглушек (Mocking) без использования фреймворков
 
-Rust's trait system provides natural dependency injection — no mocking framework required:
+Система типажей Rust обеспечивает естественное внедрение зависимостей (dependency injection) — использование фреймворков для моков не требуется:
 
 ```rust
-// Define behavior as a trait
+// Определяем поведение в виде типажа
 trait Clock {
     fn now(&self) -> std::time::Instant;
 }
@@ -254,13 +254,13 @@ trait HttpClient {
     fn get(&self, url: &str) -> Result<String, String>;
 }
 
-// Production implementations
+// Реализации для реального использования (Production)
 struct RealClock;
 impl Clock for RealClock {
     fn now(&self) -> std::time::Instant { std::time::Instant::now() }
 }
 
-// Service depends on abstractions
+// Сервис зависит от абстракций
 struct CacheService<C: Clock, H: HttpClient> {
     clock: C,
     client: H,
@@ -269,12 +269,12 @@ struct CacheService<C: Clock, H: HttpClient> {
 
 impl<C: Clock, H: HttpClient> CacheService<C, H> {
     fn fetch(&self, url: &str) -> Result<String, String> {
-        // Uses self.clock and self.client — injectable
+        // Использует self.clock и self.client — зависимости могут внедряться
         self.client.get(url)
     }
 }
 
-// Test with mock implementations — no framework needed!
+// Тестирование с имитационными (mock) реализациями — фреймворки не нужны!
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -299,38 +299,38 @@ mod tests {
     fn test_cache_service() {
         let service = CacheService {
             clock: MockClock { fixed_time: std::time::Instant::now() },
-            client: MockHttpClient { response: "cached data".into() },
+            client: MockHttpClient { response: "кэшированные данные".into() },
             ttl: std::time::Duration::from_secs(300),
         };
 
-        assert_eq!(service.fetch("http://example.com").unwrap(), "cached data");
+        assert_eq!(service.fetch("http://example.com").unwrap(), "кэшированные данные");
     }
 }
 ```
 
-> **Test philosophy**: Prefer real dependencies in integration tests, trait-based
-> mocks in unit tests. Avoid mocking frameworks unless your dependency graph is
-> complex — Rust's trait generics handle most cases naturally.
+> **Философия тестирования**: Предпочитайте реальные зависимости в интеграционных тестах и
+> заглушки на основе типажей в модульных тестах. Избегайте использования библиотек имитации (mocking frameworks), кроме случаев
+> со сложным графом зависимостей — обобщенные типажи Rust естественным образом покрывают большинство сценариев.
 
-> **Key Takeaways — Testing**
-> - Doc tests (`///`) double as documentation and regression tests — they're compiled and run
-> - `proptest` generates random inputs to find edge cases you'd never write manually
-> - `criterion` provides statistically rigorous benchmarks with HTML reports
-> - Mock via trait generics + test doubles, not mock frameworks
+> **Основные выводы — Тестирование**
+> - Док-тесты (`///`) выполняют двойную роль: документации и регрессионных тестов — они компилируются и запускаются автоматически.
+> - Библиотека `proptest` генерирует случайные входные данные для выявления крайних случаев, которые сложно придумать вручную.
+> - Библиотека `criterion` обеспечивает статистически достоверные бенчмарки с отчетами в формате HTML.
+> - Создавайте заглушки (mock) с помощью обобщенных типажей и тестовых дублеров (test doubles), а не фреймворков имитации.
 
-> **See also:** [Ch 12 — Macros](ch13-macros-code-that-writes-code.md) for testing macro-generated code. [Ch 14 — API Design](ch15-crate-architecture-and-api-design.md) for how module layout affects test organization.
+> **См. также:** [Глава 12 — Макросы](ch13-macros-code-that-writes-code.md) для тестирования сгенерированного макросами кода. [Глава 14 — Проектирование API](ch15-crate-architecture-and-api-design.md) для понимания того, как структура модулей влияет на организацию тестов.
 
 ---
 
-### Exercise: Property-Based Testing with proptest ★★ (~25 min)
+### Упражнение: Тестирование на основе свойств с proptest ★★ (~25 мин)
 
-Write a `SortedVec<T: Ord>` wrapper that maintains a sorted invariant. Use `proptest` to verify that:
-1. After any sequence of insertions, the internal vec is always sorted
-2. `contains()` agrees with the stdlib `Vec::contains()`
-3. The length equals the number of insertions
+Напишите обёртку `SortedVec<T: Ord>`, поддерживающую инвариант сортировки элементов. Используйте библиотеку `proptest`, чтобы убедиться, что:
+1. После любой последовательности вставок внутренний вектор всегда отсортирован.
+2. Метод `contains()` работает так же, как `Vec::contains()` из стандартной библиотеки.
+3. Длина вектора равна количеству вставок.
 
 <details>
-<summary>🔑 Solution</summary>
+<summary>🔑 Решение</summary>
 
 ```rust,ignore
 #[derive(Debug)]
@@ -390,4 +390,3 @@ mod tests {
 </details>
 
 ***
-

@@ -1,50 +1,50 @@
-# 10. Error Handling Patterns 🟢
+# 10. Шаблоны обработки ошибок 🟢
 
-> **What you'll learn:**
-> - When to use `thiserror` (libraries) vs `anyhow` (applications)
-> - Error conversion chains with `#[from]` and `.context()` wrappers
-> - How the `?` operator desugars and works in `main()`
-> - When to panic vs return errors, and `catch_unwind` for FFI boundaries
+> **Чему вы научитесь:**
+> - Когда использовать `thiserror` (библиотеки), а когда `anyhow` (приложения)
+> - Цепочки преобразования ошибок с помощью `#[from]` и обёрток `.context()`
+> - Как раскрывается оператор `?` и как он работает в `main()`
+> - Когда вызывать панику (`panic`), а когда возвращать ошибки, и использование `catch_unwind` для границ FFI
 
-## thiserror vs anyhow — Library vs Application
+## thiserror против anyhow — библиотеки против приложений
 
-Rust error handling centers on the `Result<T, E>` type. Two crates dominate:
+Обработка ошибок в Rust сосредоточена вокруг типа `Result<T, E>`. Здесь доминируют две библиотеки (crates):
 
 ```rust,ignore
-// --- thiserror: For LIBRARIES ---
-// Generates Display, Error, and From impls via derive macros
+// --- thiserror: Для БИБЛИОТЕК ---
+// Генерирует реализации Display, Error и From с помощью макросов derive
 use thiserror::Error;
 
 #[derive(Error, Debug)]
 pub enum DatabaseError {
-    #[error("connection failed: {0}")]
+    #[error("ошибка соединения: {0}")]
     ConnectionFailed(String),
 
-    #[error("query error: {source}")]
+    #[error("ошибка запроса: {source}")]
     QueryError {
         #[source]
         source: sqlx::Error,
     },
 
-    #[error("record not found: table={table} id={id}")]
+    #[error("запись не найдена: table={table} id={id}")]
     NotFound { table: String, id: u64 },
 
-    #[error(transparent)] // Delegate Display to the inner error
-    Io(#[from] std::io::Error), // Auto-generates From<io::Error>
+    #[error(transparent)] // Делегирует Display внутреннему типу ошибки
+    Io(#[from] std::io::Error), // Автоматически генерирует From<io::Error>
 }
 
-// --- anyhow: For APPLICATIONS ---
-// Dynamic error type — great for top-level code where you just want errors to propagate
+// --- anyhow: Для ПРИЛОЖЕНИЙ ---
+// Динамический тип ошибки — отлично подходит для высокоуровневого кода, где нужно просто передавать ошибки выше
 use anyhow::{Context, Result, bail, ensure};
 
 fn read_config(path: &str) -> Result<Config> {
     let content = std::fs::read_to_string(path)
-        .with_context(|| format!("failed to read config from {path}"))?;
+        .with_context(|| format!("не удалось прочитать конфигурацию из {path}"))?;
 
     let config: Config = serde_json::from_str(&content)
-        .context("failed to parse config JSON")?;
+        .context("не удалось разобрать JSON конфигурации")?;
 
-    ensure!(config.port > 0, "port must be positive, got {}", config.port);
+    ensure!(config.port > 0, "порт должен быть положительным, получено {}", config.port);
 
     Ok(config)
 }
@@ -53,40 +53,40 @@ fn main() -> Result<()> {
     let config = read_config("server.toml")?;
 
     if config.name.is_empty() {
-        bail!("server name cannot be empty"); // Return Err immediately
+        bail!("имя сервера не может быть пустым"); // Немедленно возвращает Err
     }
 
     Ok(())
 }
 ```
 
-**When to use which**:
+**Когда что использовать**:
 
 | | `thiserror` | `anyhow` |
 |---|---|---|
-| **Use in** | Libraries, shared crates | Applications, binaries |
-| **Error types** | Concrete enums — callers can match | `anyhow::Error` — opaque |
-| **Effort** | Define your error enum | Just use `Result<T>` |
-| **Downcasting** | Not needed — pattern match | `error.downcast_ref::<MyError>()` |
+| **Использование в** | Библиотеках, общих пакетах (crates) | Приложениях, бинарных файлах |
+| **Типы ошибок** | Конкретные перечисления (enums) — вызывающая сторона может делать по ним сопоставление | `anyhow::Error` — непрозрачный тип |
+| **Сложность** | Необходимо определить собственное перечисление ошибок | Достаточно использовать `Result<T>` |
+| **Приведение типов (Downcasting)** | Не требуется — используется сопоставление с образцом | `error.downcast_ref::<MyError>()` |
 
-### Error Conversion Chains (#[from])
+### Цепочки преобразования ошибок (#[from])
 
 ```rust,ignore
 use thiserror::Error;
 
 #[derive(Error, Debug)]
 enum AppError {
-    #[error("I/O error: {0}")]
+    #[error("ошибка ввода-вывода (I/O): {0}")]
     Io(#[from] std::io::Error),
 
-    #[error("JSON error: {0}")]
+    #[error("ошибка JSON: {0}")]
     Json(#[from] serde_json::Error),
 
-    #[error("HTTP error: {0}")]
+    #[error("ошибка HTTP: {0}")]
     Http(#[from] reqwest::Error),
 }
 
-// Now ? automatically converts:
+// Теперь оператор ? автоматически преобразует типы:
 fn fetch_and_parse(url: &str) -> Result<Config, AppError> {
     let body = reqwest::blocking::get(url)?.text()?;  // reqwest::Error → AppError::Http
     let config: Config = serde_json::from_str(&body)?; // serde_json::Error → AppError::Json
@@ -94,109 +94,109 @@ fn fetch_and_parse(url: &str) -> Result<Config, AppError> {
 }
 ```
 
-### Context and Error Wrapping
+### Контекст и оборачивание ошибок
 
-Add human-readable context to errors without losing the original:
+Добавляйте понятный человеку контекст к ошибкам без потери исходной ошибки:
 
 ```rust,ignore
 use anyhow::{Context, Result};
 
 fn process_file(path: &str) -> Result<Data> {
     let content = std::fs::read_to_string(path)
-        .with_context(|| format!("failed to read {path}"))?;
+        .with_context(|| format!("не удалось прочитать {path}"))?;
 
     let data = parse_content(&content)
-        .with_context(|| format!("failed to parse {path}"))?;
+        .with_context(|| format!("не удалось разобрать {path}"))?;
 
     validate(&data)
-        .context("validation failed")?;
+        .context("валидация завершилась ошибкой")?;
 
     Ok(data)
 }
 
-// Error output:
-// Error: validation failed
+// Вывод ошибки:
+// Error: валидация завершилась ошибкой
 //
-// Caused by:
-//    0: failed to parse config.json
-//    1: expected ',' at line 5 column 12
+// Вызвано:
+//    0: не удалось разобрать config.json
+//    1: ожидалась ',' на строке 5 в колонке 12
 ```
 
-### The ? Operator in Depth
+### Подробно об операторе ?
 
-`?` is syntactic sugar for a `match` + `From` conversion + early return:
+Оператор `?` — это синтаксический сахар для конструкции `match` с преобразованием `From` и ранним возвратом:
 
 ```rust
-// This:
+// Это:
 let value = operation()?;
 
-// Desugars to:
+// Раскрывается в:
 let value = match operation() {
     Ok(v) => v,
     Err(e) => return Err(From::from(e)),
     //                  ^^^^^^^^^^^^^^
-    //                  Automatic conversion via From trait
+    //                  Автоматическое преобразование через типаж From
 };
 ```
 
-**`?` also works with `Option`** (in functions returning `Option`):
+**Оператор `?` также работает с `Option`** (в функциях, возвращающих `Option`):
 
 ```rust
 fn find_user_email(users: &[User], name: &str) -> Option<String> {
-    let user = users.iter().find(|u| u.name == name)?; // Returns None if not found
-    let email = user.email.as_ref()?; // Returns None if email is None
+    let user = users.iter().find(|u| u.name == name)?; // Возвращает None, если не найдено
+    let email = user.email.as_ref()?; // Возвращает None, если email равен None
     Some(email.to_uppercase())
 }
 ```
 
-### Panics, catch_unwind, and When to Abort
+### Паника, catch_unwind и когда нужно аварийно завершать работу (Abort)
 
 ```rust
-// Panics: for BUGS, not expected errors
+// Паника: для ОШИБОК ПРОГРАММИРОВАНИЯ (багов), а не ожидаемых ошибок
 fn get_element(data: &[i32], index: usize) -> &i32 {
-    // If this panics, it's a programming error (bug).
-    // Don't "handle" it — fix the caller.
+    // Если здесь происходит паника, это ошибка программирования (баг).
+    // Не надо «обрабатывать» её — исправьте вызывающий код.
     &data[index]
 }
 
-// catch_unwind: for boundaries (FFI, thread pools)
+// catch_unwind: для границ сред выполнения (FFI, пулы потоков)
 use std::panic;
 
 let result = panic::catch_unwind(|| {
-    // Run potentially panicking code safely
+    // Безопасный запуск кода, который потенциально может вызвать панику
     risky_operation()
 });
 
 match result {
-    Ok(value) => println!("Success: {value:?}"),
-    Err(_) => eprintln!("Operation panicked — continuing safely"),
+    Ok(value) => println!("Успех: {value:?}"),
+    Err(_) => eprintln!("Операция вызвала панику — продолжаем работу в безопасном режиме"),
 }
 
-// When to use which:
-// - Result<T, E> → expected failures (file not found, network timeout)
-// - panic!()     → programming bugs (index out of bounds, invariant violated)
-// - process::abort() → unrecoverable state (security violation, corrupt data)
+// Когда что использовать:
+// - Result<T, E> → ожидаемые сбои (файл не найден, таймаут сети)
+// - panic!()     → баги в коде (выход индекса за границы, нарушение инварианта)
+// - process::abort() → невосстановимое состояние (нарушение безопасности, повреждение данных)
 ```
 
-> **C++ comparison**: `Result<T, E>` replaces exceptions for expected errors.
-> `panic!()` is like `assert()` or `std::terminate()` — it's for bugs, not
-> control flow. Rust's `?` operator makes error propagation as ergonomic as
-> exceptions without the unpredictable control flow.
+> **Сравнение с C++**: `Result<T, E>` заменяет исключения для ожидаемых ошибок.
+> `panic!()` похож на `assert()` или `std::terminate()` — он предназначен для багов, а не
+> для управления потоком выполнения. Оператор `?` в Rust делает распространение ошибок столь же эргономичным, как
+> и исключения, но без непредсказуемого потока управления.
 
-> **Key Takeaways — Error Handling**
-> - Libraries: `thiserror` for structured error enums; applications: `anyhow` for ergonomic propagation
-> - `#[from]` auto-generates `From` impls; `.context()` adds human-readable wrappers
-> - `?` desugars to `From::from()` + early return; works in `main()` returning `Result`
+> **Основные выводы — Обработка ошибок**
+> - Библиотеки: `thiserror` для структурированных перечислений ошибок; приложения: `anyhow` для эргономичного распространения ошибок.
+> - `#[from]` автоматически генерирует реализации `From`; `.context()` добавляет понятные человеку обёртки.
+> - `?` раскрывается в `From::from()` + ранний возврат; работает в функции `main()`, если та возвращает `Result`.
 
-> **See also:** [Ch 14 — API Design](ch15-crate-architecture-and-api-design.md) for "parse, don't validate" patterns. [Ch 11 — Serialization](ch11-serialization-zero-copy-and-binary-data.md) for serde error handling.
+> **См. также:** [Глава 14 — Проектирование API](ch15-crate-architecture-and-api-design.md) для шаблонов «разбирайте, а не валидируйте» (parse, don't validate). [Глава 11 — Сериализация](ch11-serialization-zero-copy-and-binary-data.md) для обработки ошибок в serde.
 
 ```mermaid
 flowchart LR
     A["std::io::Error"] -->|"#[from]"| B["AppError::Io"]
     C["serde_json::Error"] -->|"#[from]"| D["AppError::Json"]
-    E["Custom validation"] -->|"manual"| F["AppError::Validation"]
+    E["Пользовательская валидация"] -->|"manual"| F["AppError::Validation"]
 
-    B --> G["? operator"]
+    B --> G["Оператор ?"]
     D --> G
     F --> G
     G --> H["Result&lt;T, AppError&gt;"]
@@ -213,33 +213,33 @@ flowchart LR
 
 ---
 
-### Exercise: Error Hierarchy with thiserror ★★ (~30 min)
+### Упражнение: Иерархия ошибок с помощью thiserror ★★ (~30 мин)
 
-Design an error type hierarchy for a file-processing application that can fail during I/O, parsing (JSON and CSV), and validation. Use `thiserror` and demonstrate `?` propagation.
+Разработайте иерархию типов ошибок для приложения обработки файлов, работа которого может завершиться ошибкой во время ввода-вывода (I/O), парсинга (JSON и CSV) и валидации. Используйте библиотеку `thiserror` и продемонстрируйте распространение ошибок с помощью оператора `?`.
 
 <details>
-<summary>🔑 Solution</summary>
+<summary>🔑 Решение</summary>
 
 ```rust,ignore
 use thiserror::Error;
 
 #[derive(Error, Debug)]
 pub enum AppError {
-    #[error("I/O error: {0}")]
+    #[error("ошибка ввода-вывода (I/O): {0}")]
     Io(#[from] std::io::Error),
 
-    #[error("JSON parse error: {0}")]
+    #[error("ошибка парсинга JSON: {0}")]
     Json(#[from] serde_json::Error),
 
-    #[error("CSV error at line {line}: {message}")]
+    #[error("ошибка CSV на строке {line}: {message}")]
     Csv { line: usize, message: String },
 
-    #[error("validation error: {field} — {reason}")]
+    #[error("ошибка валидации: {field} — {reason}")]
     Validation { field: String, reason: String },
 }
 
 fn read_file(path: &str) -> Result<String, AppError> {
-    Ok(std::fs::read_to_string(path)?) // io::Error → AppError::Io via #[from]
+    Ok(std::fs::read_to_string(path)?) // io::Error → AppError::Io через #[from]
 }
 
 fn parse_json(content: &str) -> Result<serde_json::Value, AppError> {
@@ -251,13 +251,13 @@ fn validate_name(value: &serde_json::Value) -> Result<String, AppError> {
         .and_then(|v| v.as_str())
         .ok_or_else(|| AppError::Validation {
             field: "name".into(),
-            reason: "must be a non-null string".into(),
+            reason: "должно быть ненулевой строкой".into(),
         })?;
 
     if name.is_empty() {
         return Err(AppError::Validation {
             field: "name".into(),
-            reason: "must not be empty".into(),
+            reason: "не должно быть пустым".into(),
         });
     }
 
@@ -273,8 +273,8 @@ fn process_file(path: &str) -> Result<String, AppError> {
 
 fn main() {
     match process_file("config.json") {
-        Ok(name) => println!("Name: {name}"),
-        Err(e) => eprintln!("Error: {e}"),
+        Ok(name) => println!("Имя: {name}"),
+        Err(e) => eprintln!("Ошибка: {e}"),
     }
 }
 ```
@@ -282,4 +282,3 @@ fn main() {
 </details>
 
 ***
-

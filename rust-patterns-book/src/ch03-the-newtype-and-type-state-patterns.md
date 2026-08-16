@@ -1,22 +1,22 @@
-# 3. The Newtype and Type-State Patterns 🟡
+# 3. Шаблоны Newtype и Type-State 🟡
 
-> **What you'll learn:**
-> - The newtype pattern for zero-cost compile-time type safety
-> - Type-state pattern: making illegal state transitions unrepresentable
-> - Builder pattern with type states for compile-time–enforced construction
-> - Config trait pattern for taming generic parameter explosion
+> **Чему вы научитесь:**
+> - Шаблону newtype для обеспечения безопасности типов на этапе компиляции с нулевыми накладными расходами (zero-cost)
+> - Шаблону type-state: делаем недопустимые переходы между состояниями непредставимыми в коде
+> - Шаблону строитель (builder) с использованием состояний типов для принудительного контроля конструирования на этапе компиляции
+> - Шаблону config-трейта (config trait) для укрощения взрывного роста обобщённых параметров (generic parameters)
 
-## Newtype: Zero-Cost Type Safety
+## Newtype: безопасность типов с нулевой стоимостью (Zero-Cost)
 
-The newtype pattern wraps an existing type in a single-field tuple struct to create a distinct type with zero runtime overhead:
+Шаблон newtype оборачивает существующий тип в одноэлементную кортежную структуру для создания отдельного типа с нулевыми накладными расходами времени выполнения:
 
 ```rust
-// Without newtypes — easy to mix up:
+// Без newtype — легко перепутать:
 fn create_user(name: String, email: String, age: u32, employee_id: u32) { }
-// create_user(name, email, age, id);  — but what if we swap age and id?
-// create_user(name, email, id, age);  — COMPILES FINE, BUG
+// create_user(name, email, age, id);  — но что если мы перепутаем местами age и id?
+// create_user(name, email, id, age);  — КОМПИЛИРУЕТСЯ БЕЗ ПРОБЛЕМ, БАГ
 
-// With newtypes — the compiler catches mistakes:
+// С newtype — компилятор ловит ошибки:
 struct UserName(String);
 struct Email(String);
 struct Age(u32);
@@ -24,13 +24,12 @@ struct EmployeeId(u32);
 
 fn create_user(name: UserName, email: Email, age: Age, id: EmployeeId) { }
 // create_user(name, email, EmployeeId(42), Age(30));
-// ❌ Compile error: expected Age, got EmployeeId
+// ❌ Ошибка компиляции: ожидался тип Age, получен EmployeeId
 ```
 
-### `impl Deref` for Newtypes — Power and Pitfalls
+### `impl Deref` для Newtype — возможности и опасности
 
-Implementing `Deref` on a newtype lets it auto-coerce to the inner type's
-reference, giving you all of the inner type's methods "for free":
+Реализация трейта `Deref` для newtype позволяет автоматически приводить его к ссылке на внутренний тип, предоставляя вам все методы внутреннего типа «бесплатно»:
 
 ```rust
 use std::ops::Deref;
@@ -52,40 +51,34 @@ impl Deref for Email {
     fn deref(&self) -> &str { &self.0 }
 }
 
-// Now Email auto-derefs to &str:
+// Теперь Email автоматически разыменовывается (auto-deref) в &str:
 let email = Email::new("user@example.com").unwrap();
-println!("Length: {}", email.len()); // Uses str::len via Deref
+println!("Length: {}", email.len()); // Использует str::len через Deref
 ```
 
-This is convenient — but it effectively **punches a hole** through your
-newtype's abstraction boundary because *every* method on the target type
-becomes callable on your wrapper.
+Это удобно, но фактически **пробивает брешь** в границе абстракции вашего newtype, поскольку *каждый* метод целевого типа становится доступным для вызова на вашей обёртке.
 
-#### When `Deref` IS appropriate
+#### Когда `Deref` уместен
 
-| Scenario | Example | Why it's fine |
+| Сценарий | Пример | Почему это нормально |
 |----------|---------|---------------|
-| Smart-pointer wrappers | `Box<T>`, `Arc<T>`, `MutexGuard<T>` | The wrapper's whole purpose is to behave like `T` |
-| Transparent "thin" wrappers | `String` → `str`, `PathBuf` → `Path`, `Vec<T>` → `[T]` | The wrapper IS-A superset of the target |
-| Your newtype genuinely IS the inner type | `struct Hostname(String)` where you always want full string ops | Restricting the API would add no value |
+| Обёртки умных указателей | `Box<T>`, `Arc<T>`, `MutexGuard<T>` | Единственная цель обёртки — вести себя как `T` |
+| Прозрачные «тонкие» обёртки | `String` → `str`, `PathBuf` → `Path`, `Vec<T>` → `[T]` | Обёртка представляет собой надмножество целевого типа |
+| Ваш newtype действительно является внутренним типом | `struct Hostname(String)`, когда вам всегда нужны все строковые операции | Ограничение API не принесло бы никакой пользы |
 
-#### When `Deref` is an anti-pattern
+#### Когда `Deref` является антипаттерном
 
-| Scenario | Problem |
+| Сценарий | Проблема |
 |----------|---------|
-| **Domain types with invariants** | `Email` derefs to `&str`, so callers can call `.split_at()`, `.trim()`, etc. — none of which preserve the "must contain @" invariant. If someone stores the trimmed `&str` and reconstructs, the invariant is lost. |
-| **Types where you want a restricted API** | `struct Password(String)` with `Deref<Target = str>` leaks `.as_bytes()`, `.chars()`, `Debug` output — exactly what you're trying to hide. |
-| **Fake inheritance** | Using `Deref` to make `ManagerWidget` auto-deref to `Widget` simulates OOP inheritance. This is explicitly discouraged — see the Rust API Guidelines (C-DEREF). |
+| **Доменные типы с инвариантами** | `Email` разыменовывается в `&str`, поэтому вызывающий код может вызвать `.split_at()`, `.trim()` и т. д., ни один из которых не сохраняет инвариант «должен содержать @». Если кто-то сохранит обрезанный `&str` и воссоздаст объект, инвариант будет утерян. |
+| **Типы, для которых вы хотите ограничить API** | `struct Password(String)` с `Deref<Target = str>` раскрывает методы `.as_bytes()`, `.chars()`, вывод `Debug` — именно то, что вы пытаетесь скрыть. |
+| **Эмуляция наследования** | Использование `Deref` для автоматического приведения `ManagerWidget` к `Widget` имитирует наследование из ООП. Это настоятельно не рекомендуется — см. Руководство по API Rust (C-DEREF). |
 
-> **Rule of thumb**: If your newtype exists to *add type safety* or *restrict
-> the API*, don't implement `Deref`. If it exists to *add capabilities* while
-> keeping the inner type's full surface (like a smart pointer), `Deref` is
-> the right choice.
+> **Практическое правило**: Если ваш newtype существует для *повышения безопасности типов* или *ограничения API*, не реализуйте `Deref`. Если же он существует для *добавления возможностей* при сохранении всего интерфейса внутреннего типа (как умный указатель), то `Deref` — это правильный выбор.
 
-#### `DerefMut` — doubles the risk
+#### `DerefMut` — двойной риск
 
-If you also implement `DerefMut`, callers can *mutate* the inner value
-directly, bypassing any validation in your constructors:
+Если вы также реализуете `DerefMut`, вызывающий код сможет напрямую *мутировать* внутреннее значение, обходя любую валидацию в конструкторах:
 
 ```rust
 use std::ops::{Deref, DerefMut};
@@ -102,14 +95,14 @@ impl DerefMut for PortNumber {
 }
 
 let mut port = PortNumber(443);
-*port = 0; // Bypasses any validation — now an invalid port
+*port = 0; // Обход валидации — теперь это недопустимый порт
 ```
 
-Only implement `DerefMut` when the inner type has no invariants to protect.
+Реализуйте `DerefMut` только тогда, когда у внутреннего типа нет инвариантов, требующих защиты.
 
-#### Prefer explicit delegation instead
+#### Вместо этого отдавайте предпочтение явному делегированию
 
-When you want only *some* of the inner type's methods, delegate explicitly:
+Если вам нужны лишь *некоторые* методы внутреннего типа, делегируйте их явно:
 
 ```rust
 struct Email(String);
@@ -117,44 +110,38 @@ struct Email(String);
 impl Email {
     fn new(raw: &str) -> Result<Self, &'static str> {
         if raw.contains('@') { Ok(Email(raw.to_string())) }
-        else { Err("missing @") }
+        else { Err("отсутствует @") }
     }
 
-    // Expose only what makes sense:
+    // Предоставляем только то, что имеет смысл:
     pub fn as_str(&self) -> &str { &self.0 }
     pub fn len(&self) -> usize { self.0.len() }
     pub fn domain(&self) -> &str {
         self.0.split('@').nth(1).unwrap_or("")
     }
-    // .split_at(), .trim(), .replace() — NOT exposed
+    // .split_at(), .trim(), .replace() — НЕ доступны извне
 }
 ```
 
-#### Clippy and the ecosystem
+#### Clippy и экосистема
 
-- **`clippy::wrong_self_convention`** can fire when `Deref` coercion
-  makes method resolution surprising (e.g., `is_empty()` resolving to the
-  inner type's version instead of one you intended to shadow).
-- The **Rust API Guidelines** (C-DEREF) state: *"only smart pointers
-  should implement `Deref`."* Treat this as a strong default; deviate
-  only with clear justification.
-- If you need trait compatibility (e.g., passing `Email` to functions
-  expecting `&str`), consider implementing `AsRef<str>` and `Borrow<str>`
-  instead — they're explicit conversions without auto-coercion surprises.
+- Линтер **`clippy::wrong_self_convention`** может сработать, когда приведение через `Deref` приводит к неожиданному разрешению методов (например, вызов `is_empty()` разрешается в версию внутреннего типа вместо той, которую вы намеревались переопределить).
+- **Руководство по API Rust** (C-DEREF) гласит: *«только умные указатели должны реализовывать `Deref`»*. Относитесь к этому как к строгому правилу по умолчанию и отклоняйтесь от него только при наличии четкого обоснования.
+- Если вам нужна совместимость с трейтами (например, передача `Email` в функции, ожидающие `&str`), рассмотрите возможность реализации трейтов `AsRef<str>` и `Borrow<str>` — они обеспечивают явное преобразование без сюрпризов, связанных с автоматическим приведением типов.
 
-#### Decision matrix
+#### Матрица принятия решений
 
 ```text
-Do you want ALL methods of the inner type to be callable?
-  ├─ YES → Does your type enforce invariants or restrict the API?
-  │    ├─ NO  → impl Deref ✅  (smart-pointer / transparent wrapper)
-  │    └─ YES → Don't impl Deref ❌ (invariant leaks)
-  └─ NO  → Don't impl Deref ❌  (use AsRef / explicit delegation)
+Хотите ли вы, чтобы ВСЕ методы внутреннего типа были доступны для вызова?
+  ├─ ДА → Накладывает ли ваш тип ограничения на инварианты или ограничивает API?
+  │    ├─ НЕТ  → impl Deref ✅  (умный указатель / прозрачная обёртка)
+  │    └─ ДА   → Не реализуйте Deref ❌ (утечка инвариантов)
+  └─ НЕТ  → Не реализуйте Deref ❌  (используйте AsRef / явное делегирование)
 ```
 
-### Type-State: Compile-Time Protocol Enforcement
+### Type-State: принудительный контроль протокола на этапе компиляции
 
-The type-state pattern uses the type system to enforce that operations happen in the correct order. Invalid states become **unrepresentable**.
+Шаблон type-state (состояние типа) использует систему типов, чтобы гарантировать правильный порядок выполнения операций. Недопустимые состояния становятся **непредставимыми**.
 
 ```mermaid
 stateDiagram-v2
@@ -164,32 +151,32 @@ stateDiagram-v2
     Authenticated --> Authenticated: request()
     Authenticated --> [*]: drop
 
-    Disconnected --> Disconnected: ❌ request() won't compile
-    Connected --> Connected: ❌ request() won't compile
+    Disconnected --> Disconnected: ❌ request() не скомпилируется
+    Connected --> Connected: ❌ request() не скомпилируется
 ```
 
-> Each transition *consumes* `self` and returns a new type — the compiler enforces valid ordering.
+> Каждый переход *потребляет* `self` и возвращает новый тип — компилятор гарантирует правильный порядок вызовов.
 
 ```rust
-// Problem: A network connection that must be:
-// 1. Created
-// 2. Connected
-// 3. Authenticated
-// 4. Then used for requests
-// Calling request() before authenticate() should be a COMPILE error.
+// Задача: Сетевое соединение, которое должно быть:
+// 1. Создано
+// 2. Установлено (Connected)
+// 3. Аутентифицировано (Authenticated)
+// 4. Использовано для запросов (request)
+// Вызов request() до authenticate() должен приводить к ошибке КОМПИЛЯЦИИ.
 
-// --- Type-state markers (zero-sized types) ---
+// --- Маркеры состояний типа (типы нулевого размера) ---
 struct Disconnected;
 struct Connected;
 struct Authenticated;
 
-// --- Connection parameterized by state ---
+// --- Соединение, параметризованное состоянием ---
 struct Connection<State> {
     address: String,
     _state: std::marker::PhantomData<State>,
 }
 
-// Only Disconnected connections can connect:
+// Только разорванные (Disconnected) соединения могут подключаться:
 impl Connection<Disconnected> {
     fn new(address: &str) -> Self {
         Connection {
@@ -199,7 +186,7 @@ impl Connection<Disconnected> {
     }
 
     fn connect(self) -> Connection<Connected> {
-        println!("Connecting to {}...", self.address);
+        println!("Подключение к {}...", self.address);
         Connection {
             address: self.address,
             _state: std::marker::PhantomData,
@@ -207,10 +194,10 @@ impl Connection<Disconnected> {
     }
 }
 
-// Only Connected connections can authenticate:
+// Только установленные (Connected) соединения могут проходить аутентификацию:
 impl Connection<Connected> {
     fn authenticate(self, _token: &str) -> Connection<Authenticated> {
-        println!("Authenticating...");
+        println!("Аутентификация...");
         Connection {
             address: self.address,
             _state: std::marker::PhantomData,
@@ -218,40 +205,40 @@ impl Connection<Connected> {
     }
 }
 
-// Only Authenticated connections can make requests:
+// Только прошедшие аутентификацию (Authenticated) соединения могут делать запросы:
 impl Connection<Authenticated> {
     fn request(&self, path: &str) -> String {
-        format!("GET {} from {}", path, self.address)
+        format!("GET {} с {}", path, self.address)
     }
 }
 
 fn main() {
     let conn = Connection::new("api.example.com");
-    // conn.request("/data"); // ❌ Compile error: no method `request` on Connection<Disconnected>
+    // conn.request("/data"); // ❌ Ошибка компиляции: метод `request` отсутствует у Connection<Disconnected>
 
     let conn = conn.connect();
-    // conn.request("/data"); // ❌ Compile error: no method `request` on Connection<Connected>
+    // conn.request("/data"); // ❌ Ошибка компиляции: метод `request` отсутствует у Connection<Connected>
 
     let conn = conn.authenticate("secret-token");
-    let response = conn.request("/data"); // ✅ Only works after authentication
+    let response = conn.request("/data"); // ✅ Работает только после аутентификации
     println!("{response}");
 }
 ```
 
-> **Key insight**: Each state transition *consumes* `self` and returns a new type.
-> You can't use the old state after transitioning — the compiler enforces it.
-> Zero runtime cost — `PhantomData` is zero-sized, states are erased at compile time.
+> **Ключевое понимание**: Каждый переход состояния *потребляет* `self` и возвращает новый тип.
+> Вы не можете использовать старое состояние после перехода — компилятор следит за этим.
+> Нулевая стоимость во время выполнения — `PhantomData` имеет нулевой размер, состояния стираются на этапе компиляции.
 
-**Comparison with C++/C#**: In C++ or C#, you'd enforce this with runtime checks (`if (!authenticated) throw ...`). The Rust type-state pattern moves these checks to compile time — invalid states are literally unrepresentable in the type system.
+**Сравнение с C++/C#**: В C++ или C# вы бы реализовывали это с помощью проверок во время выполнения (`if (!authenticated) throw ...`). В Rust шаблон type-state переносит эти проверки на этап компиляции — недопустимые состояния буквально становятся непредставимыми в системе типов.
 
-### Builder Pattern with Type States
+### Шаблон строитель (Builder) со состоянием типа
 
-A practical application — a builder that enforces required fields:
+Практическое применение — строитель, который гарантирует заполнение обязательных полей:
 
 ```rust
 use std::marker::PhantomData;
 
-// Marker types for required fields
+// Типы-маркеры для обязательных полей
 struct NeedsName;
 struct NeedsPort;
 struct Ready;
@@ -259,7 +246,7 @@ struct Ready;
 struct ServerConfig<State> {
     name: Option<String>,
     port: Option<u16>,
-    max_connections: usize, // Optional, has default
+    max_connections: usize, // Необязательно, имеет значение по умолчанию
     _state: PhantomData<State>,
 }
 
@@ -316,23 +303,23 @@ struct Server {
 }
 
 fn main() {
-    // Must provide name, then port, then can build:
+    // Сначала необходимо предоставить имя (name), затем порт (port), после чего можно вызвать build:
     let server = ServerConfig::new()
         .name("my-server")
         .port(8080)
         .max_connections(500)
         .build();
 
-    // ServerConfig::new().port(8080); // ❌ Compile error: no method `port` on NeedsName
-    // ServerConfig::new().name("x").build(); // ❌ Compile error: no method `build` on NeedsPort
+    // ServerConfig::new().port(8080); // ❌ Ошибка компиляции: метод `port` отсутствует у NeedsName
+    // ServerConfig::new().name("x").build(); // ❌ Ошибка компиляции: метод `build` отсутствует у NeedsPort
 }
 ```
 
-***
+---
 
-## Case Study: Type-Safe Connection Pool
+## Практический пример: безопасный с точки зрения типов пул соединений
 
-Real-world systems need connection pools where connections move through well-defined states. Here's how the typestate pattern enforces correctness in a production pool:
+Реальные системы нуждаются в пулах соединений, где соединения переходят из одного четко определенного состояния в другое. Ниже показано, как шаблон typestate обеспечивает корректность работы в пуле промышленного уровня (production):
 
 ```mermaid
 stateDiagram-v2
@@ -342,13 +329,13 @@ stateDiagram-v2
     Active --> Idle: conn.commit() / conn.rollback()
     Idle --> [*]: pool.release(conn)
 
-    Active --> [*]: ❌ cannot release mid-transaction
+    Active --> [*]: ❌ нельзя освободить в середине транзакции
 ```
 
 ```rust
 use std::marker::PhantomData;
 
-// States
+// Состояния
 struct Idle;
 struct InTransaction;
 
@@ -366,13 +353,13 @@ impl Pool {
 
     fn acquire(&mut self) -> PooledConnection<Idle> {
         self.next_id += 1;
-        println!("[pool] Acquired connection #{}", self.next_id);
+        println!("[pool] Получено соединение #{}", self.next_id);
         PooledConnection { id: self.next_id, _state: PhantomData }
     }
 
-    // Only idle connections can be released — prevents mid-transaction leaks
+    // Только простаивающие (Idle) соединения могут быть возвращены — предотвращает утечки в процессе транзакции
     fn release(&self, conn: PooledConnection<Idle>) {
-        println!("[pool] Released connection #{}", conn.id);
+        println!("[pool] Освобождено соединение #{}", conn.id);
     }
 }
 
@@ -406,25 +393,22 @@ fn main() {
     let conn = conn.begin_transaction();
     conn.execute("INSERT INTO users VALUES ('Alice')");
     conn.execute("INSERT INTO orders VALUES (1, 42)");
-    let conn = conn.commit(); // Back to Idle
-    pool.release(conn);       // ✅ Only works on Idle connections
+    let conn = conn.commit(); // Возврат к состоянию Idle
+    pool.release(conn);       // ✅ Работает только для соединений в состоянии Idle
 
-    // pool.release(conn_active); // ❌ Compile error: can't release InTransaction
+    // pool.release(conn_active); // ❌ Ошибка компиляции: невозможно освободить InTransaction
 }
 ```
 
-**Why this matters in production**: A connection leaked mid-transaction holds database
-locks indefinitely. The typestate pattern makes this impossible — you literally cannot
-return a connection to the pool until the transaction is committed or rolled back.
+**Почему это важно в реальных условиях**: Утечка соединения посреди транзакции приводит к удержанию блокировок базы данных на неопределенное время. Шаблон typestate делает это невозможным — вы буквально не сможете вернуть соединение в пул, пока транзакция не будет зафиксирована (committed) или откачена (rolled back).
 
-***
+---
 
-## Config Trait Pattern — Taming Generic Parameter Explosion
+## Шаблон Config Trait — укрощение взрывного роста обобщённых параметров
 
-### The Problem
+### Проблема
 
-As a struct takes on more responsibilities, each backed by a trait-constrained generic,
-the type signature grows unwieldy:
+По мере того как структура берет на себя все больше обязанностей, каждая из которых подкреплена обобщённым типом (generic), ограниченным трейтом, сигнатура типа разрастается до громоздких размеров:
 
 ```rust
 trait SpiBus   { fn spi_transfer(&self, tx: &[u8], rx: &mut [u8]) -> Result<(), BusError>; }
@@ -433,7 +417,7 @@ trait I3cBus   { fn i3c_read(&self, addr: u8, buf: &mut [u8]) -> Result<(), BusE
 trait SmBus    { fn smbus_read_byte(&self, addr: u8, cmd: u8) -> Result<u8, BusError>; }
 trait GpioBus  { fn gpio_set(&self, pin: u32, high: bool); }
 
-// ❌ Every new bus trait adds another generic parameter
+// ❌ Каждый новый трейт шины добавляет еще один обобщённый параметр
 struct DiagController<S: SpiBus, C: ComPort, I: I3cBus, M: SmBus, G: GpioBus> {
     spi: S,
     com: C,
@@ -441,18 +425,15 @@ struct DiagController<S: SpiBus, C: ComPort, I: I3cBus, M: SmBus, G: GpioBus> {
     smbus: M,
     gpio: G,
 }
-// impl blocks, function signatures, and callers all repeat the full list.
-// Adding a 6th bus means editing every mention of DiagController<S, C, I, M, G>.
+// Блоки impl, сигнатуры функций и вызывающие стороны — все они должны повторять весь список параметров.
+// Добавление 6-й шины означает необходимость редактирования каждого упоминания DiagController<S, C, I, M, G>.
 ```
 
-This is often called **"generic parameter explosion."** It compounds across `impl` blocks,
-function parameters, and downstream consumers — each of which must repeat the full
-parameter list.
+Это явление часто называют **«взрывом обобщённых параметров» (generic parameter explosion)**. Оно лавинообразно нарастает в блоках `impl`, параметрах функций и у конечных потребителей — каждому из них приходится дублировать весь список параметров.
 
-### The Solution: A Config Trait
+### Решение: Трейт конфигурации (Config Trait)
 
-Bundle all associated types into a single trait. The struct then has **one** generic
-parameter regardless of how many component types it contains:
+Сгруппируйте все ассоциированные типы (associated types) в один трейт. После этого у структуры будет ровно **один** обобщённый параметр, независимо от того, сколько типов компонентов она содержит:
 
 ```rust
 #[derive(Debug)]
@@ -462,7 +443,7 @@ enum BusError {
     HardwareFault(String),
 }
 
-// --- Bus traits (unchanged) ---
+// --- Трейты шин (без изменений) ---
 trait SpiBus {
     fn spi_transfer(&self, tx: &[u8], rx: &mut [u8]) -> Result<(), BusError>;
     fn spi_write(&self, data: &[u8]) -> Result<(), BusError>;
@@ -478,14 +459,14 @@ trait I3cBus {
     fn i3c_write(&self, addr: u8, data: &[u8]) -> Result<(), BusError>;
 }
 
-// --- The Config trait: one associated type per component ---
+// --- Config-трейт: один ассоциированный тип на компонент ---
 trait BoardConfig {
     type Spi: SpiBus;
     type Com: ComPort;
     type I3c: I3cBus;
 }
 
-// --- DiagController has exactly ONE generic parameter ---
+// --- DiagController теперь имеет ровно ОДИН обобщённый параметр ---
 struct DiagController<Cfg: BoardConfig> {
     spi: Cfg::Spi,
     com: Cfg::Com,
@@ -493,11 +474,10 @@ struct DiagController<Cfg: BoardConfig> {
 }
 ```
 
-`DiagController<Cfg>` will never gain another generic parameter.
-Adding a 4th bus means adding one associated type to `BoardConfig` and one field
-to `DiagController` — no downstream signature changes.
+`DiagController<Cfg>` больше никогда не потребует добавления новых обобщённых параметров.
+Добавление 4-й шины означает лишь добавление одного ассоциированного типа в `BoardConfig` и одного поля в `DiagController` — при этом сигнатуры в зависимом коде останутся без изменений.
 
-### Implementing the Controller
+### Реализация контроллера
 
 ```rust
 impl<Cfg: BoardConfig> DiagController<Cfg> {
@@ -550,9 +530,9 @@ struct DiagReport {
 }
 ```
 
-### Production Wiring
+### Связывание в Production
 
-One `impl BoardConfig` selects the concrete hardware drivers:
+Единая реализация `impl BoardConfig` выбирает конкретные драйверы оборудования:
 
 ```rust
 struct PlatformSpi  { dev: String, speed_hz: u32 }
@@ -561,7 +541,7 @@ struct LinuxI3c     { dev: String }
 
 impl SpiBus for PlatformSpi {
     fn spi_transfer(&self, tx: &[u8], rx: &mut [u8]) -> Result<(), BusError> {
-        // ioctl(SPI_IOC_MESSAGE) in production
+        // В реальном окружении здесь был бы ioctl(SPI_IOC_MESSAGE)
         rx[0..4].copy_from_slice(&[0xEF, 0x40, 0x18, 0x00]);
         Ok(())
     }
@@ -585,7 +565,7 @@ impl I3cBus for LinuxI3c {
     fn i3c_write(&self, _addr: u8, _data: &[u8]) -> Result<(), BusError> { Ok(()) }
 }
 
-// ✅ One struct, one impl — all concrete types resolved here
+// ✅ Одна структура, одна реализация impl — все конкретные типы разрешаются здесь
 struct ProductionBoard;
 impl BoardConfig for ProductionBoard {
     type Spi = PlatformSpi;
@@ -604,9 +584,9 @@ fn main() {
 }
 ```
 
-### Test Wiring with Mocks
+### Связывание в тестах с помощью мок-объектов (Mocks)
 
-Swap the entire hardware layer by defining a different `BoardConfig`:
+Замените весь аппаратный уровень, определив другую реализацию `BoardConfig`:
 
 ```rust
 struct MockSpi  { flash_id: [u8; 4] }
@@ -687,94 +667,86 @@ mod tests {
 }
 ```
 
-### Adding a New Bus Later
+### Последующее добавление новой шины
 
-When you need a 4th bus, only two things change — `BoardConfig` and `DiagController`.
-**No downstream signature changes.** The generic parameter count stays at one:
+Когда вам понадобится 4-я шина, изменятся только две вещи — `BoardConfig` и `DiagController`.
+**Никаких изменений в сигнатурах ниже по течению.** Количество обобщённых параметров по-прежнему равно одному:
 
 ```rust
 trait SmBus {
     fn smbus_read_byte(&self, addr: u8, cmd: u8) -> Result<u8, BusError>;
 }
 
-// 1. Add one associated type:
+// 1. Добавляем один ассоциированный тип:
 trait BoardConfig {
     type Spi: SpiBus;
     type Com: ComPort;
     type I3c: I3cBus;
-    type Smb: SmBus;     // ← new
+    type Smb: SmBus;     // ← новое
 }
 
-// 2. Add one field:
+// 2. Добавляем одно поле:
 struct DiagController<Cfg: BoardConfig> {
     spi: Cfg::Spi,
     com: Cfg::Com,
     i3c: Cfg::I3c,
-    smb: Cfg::Smb,       // ← new
+    smb: Cfg::Smb,       // ← новое
 }
 
-// 3. Provide the concrete type in each config impl:
+// 3. Указываем конкретный тип в каждой реализации Config:
 impl BoardConfig for ProductionBoard {
     type Spi = PlatformSpi;
     type Com = UartCom;
     type I3c = LinuxI3c;
-    type Smb = LinuxSmbus; // ← new
+    type Smb = LinuxSmbus; // ← новое
 }
 ```
 
-### When to Use This Pattern
+### Когда использовать этот шаблон
 
-| Situation | Use Config Trait? | Alternative |
+| Ситуация | Использовать Config Trait? | Альтернатива |
 |-----------|:-:|---|
-| 3+ trait-constrained generics on a struct | ✅ Yes | — |
-| Need to swap entire hardware/platform layer | ✅ Yes | — |
-| Only 1-2 generics | ❌ Overkill | Direct generics |
-| Need runtime polymorphism | ❌ | `dyn Trait` objects |
-| Open-ended plugin system | ❌ | Type-map / `Any` |
-| Component traits form a natural group (board, platform) | ✅ Yes | — |
+| 3 и более обобщённых типов с ограничениями трейтов в структуре | ✅ Да | — |
+| Нужно заменять весь слой оборудования/платформы | ✅ Да | — |
+| Всего 1-2 обобщённых параметра | ❌ Избыточно | Прямые обобщённые параметры (generics) |
+| Требуется полиморфизм времени выполнения | ❌ | Объекты `dyn Trait` |
+| Открытая система плагинов | ❌ | Карта типов (type-map) / `Any` |
+| Трейты компонентов образуют естественную группу (плата, платформа) | ✅ Да | — |
 
-### Key Properties
+### Ключевые свойства
 
-- **One generic parameter forever** — `DiagController<Cfg>` never gains more `<A, B, C, ...>`
-- **Fully static dispatch** — no vtables, no `dyn`, no heap allocation for trait objects
-- **Clean test swapping** — define `TestBoard` with mock impls, zero conditional compilation
-- **Compile-time safety** — forget an associated type → compile error, not runtime crash
-- **Battle-tested** — this is the pattern used by Substrate/Polkadot's frame system
-  to manage 20+ associated types through a single `Config` trait
+- **Всегда один обобщённый параметр** — `DiagController<Cfg>` никогда не разрастется до `<A, B, C, ...>`
+- **Полностью статическая диспетчеризация** — нет таблиц виртуальных методов (vtables), нет `dyn`, нет выделения памяти в куче для объектов трейтов
+- **Удобная замена для тестирования** — определите `TestBoard` с мок-реализациями, без условной компиляции
+- **Безопасность на этапе компиляции** — если забыть ассоциированный тип, это вызовет ошибку компиляции, а не падение во время выполнения
+- **Проверено на практике** — этот шаблон используется в системе frame платформы Substrate/Polkadot для управления более чем 20 ассоциированными типами через один трейт `Config`
 
-> **Key Takeaways — Newtype & Type-State**
-> - Newtypes give compile-time type safety at zero runtime cost
-> - Type-state makes illegal state transitions a compile error, not a runtime bug
-> - Config traits tame generic parameter explosion in large systems
+> **Основные выводы — Newtype и Type-State**
+> - Newtype обеспечивает безопасность типов во время компиляции с нулевыми накладными расходами
+> - Type-state превращает недопустимые переходы состояний в ошибки компиляции, а не в баги времени выполнения
+> - Трейты конфигурации (Config traits) укрощают взрывной рост обобщённых параметров в крупных системах
 
-> **See also:** [Ch 4 — PhantomData](ch04-phantomdata-types-that-carry-no-data.md) for the zero-sized markers that power type-state. [Ch 2 — Traits In Depth](ch02-traits-in-depth.md) for associated types used in the config trait pattern.
+> **См. также:** [Гл. 4 — PhantomData](ch04-phantomdata-types-that-carry-no-data.md) для изучения маркеров нулевого размера, которые лежат в основе type-state. [Гл. 2 — Трейты во всех деталях](ch02-traits-in-depth.md) для изучения ассоциированных типов, используемых в шаблоне Config Trait.
 
 ---
 
-## Case Study: Dual-Axis Typestate — Vendor × Protocol State
+## Практический пример: Двухосный Typestate — Производитель × Состояние протокола
 
-The patterns above handle one axis at a time: typestate enforces *protocol order*,
-and trait abstraction handles *multiple vendors*. Real systems often need **both
-simultaneously**: a wrapper `Handle<Vendor, State>` where available methods depend
-on *which vendor* is plugged in **and** *which state* the handle is in.
+Описанные выше шаблоны работают с одной осью за раз: typestate контролирует *порядок выполнения протокола*, а абстракция через трейты отвечает за поддержку *нескольких производителей*. Реальным системам часто требуются **обе оси одновременно**: обёртка `Handle<Vendor, State>`, доступные методы которой зависят как от *выбранного производителя (vendor)*, **так и** от *состояния (state)*, в котором находится дескриптор.
 
-This section shows the **dual-axis conditional `impl`** pattern — where `impl`
-blocks are gated on both a vendor trait bound and a state marker trait.
+В этом разделе рассматривается шаблон **условной реализации по двум осям (dual-axis conditional `impl`)**, где блоки `impl` ограничиваются как границами трейта производителя, так и трейтом-маркером состояния.
 
-### The Two-Dimensional Problem
+### Двумерная проблема
 
-Consider a debug probe interface (JTAG/SWD). Multiple vendors make probes, and
-every probe must be unlocked before registers become accessible. Some vendors
-additionally support direct memory reads — but only after an *extended unlock*
-that configures the memory access port:
+Рассмотрим интерфейс отладочного зонда (JTAG/SWD). Несколько производителей выпускают зонды, и каждый зонд должен быть разблокирован, прежде чем его регистры станут доступны. Некоторые производители дополнительно поддерживают чтение памяти напрямую, но только после *расширенной разблокировки (extended unlock)*, которая настраивает порт доступа к памяти:
 
 ```mermaid
 graph LR
-    subgraph "All vendors"
-        L["🔒 Locked"] -- "unlock()" --> U["🔓 Unlocked"]
+    subgraph "Все производители"
+        L["🔒 Заблокирован (Locked)"] -- "unlock()" --> U["🔓 Разблокирован (Unlocked)"]
     end
-    subgraph "Memory-capable vendors only"
-        U -- "extended_unlock()" --> E["🔓🧠 ExtendedUnlocked"]
+    subgraph "Только производители с поддержкой памяти"
+        U -- "extended_unlock()" --> E["🔓🧠 Расширенная разблокировка (ExtendedUnlocked)"]
     end
 
     U -. "read_reg() / write_reg()" .-> U
@@ -786,15 +758,14 @@ graph LR
     style E fill:#eef,stroke:#33c
 ```
 
-The **capability matrix** — which methods exist for which (vendor, state)
-combination — is two-dimensional:
+**Матрица возможностей** (какие методы существуют для той или иной комбинации производителя и состояния) является двумерной:
 
 ```mermaid
 block-beta
     columns 4
-    space header1["Locked"] header2["Unlocked"] header3["ExtendedUnlocked"]
-    basic["Basic Vendor"]:1 b1["unlock()"] b2["read_reg()<br/>write_reg()"] b3["— unreachable —"]
-    memory["Memory Vendor"]:1 m1["unlock()"] m2["read_reg()<br/>write_reg()<br/>extended_unlock()"] m3["read_reg()<br/>write_reg()<br/>read_memory()<br/>write_memory()"]
+    space header1["Заблокирован"] header2["Разблокирован"] header3["Расширенная разблокировка"]
+    basic["Базовый производитель"]:1 b1["unlock()"] b2["read_reg()<br/>write_reg()"] b3["— недостижимо —"]
+    memory["Производитель с памятью"]:1 m1["unlock()"] m2["read_reg()<br/>write_reg()<br/>extended_unlock()"] m3["read_reg()<br/>write_reg()<br/>read_memory()<br/>write_memory()"]
 
     style b1 fill:#ffd,stroke:#aa0
     style b2 fill:#efe,stroke:#3a3
@@ -804,23 +775,21 @@ block-beta
     style m3 fill:#eef,stroke:#33c
 ```
 
-The challenge: express this matrix **entirely at compile time**, with static
-dispatch, so that calling `extended_unlock()` on a basic probe or
-`read_memory()` on an unlocked-but-not-extended handle is a compile error.
+Задача: выразить эту матрицу **полностью на этапе компиляции** со статической диспетчеризацией, чтобы вызов `extended_unlock()` для базового зонда или вызов `read_memory()` для разблокированного, но не расширенного дескриптора приводил к ошибке компиляции.
 
-### The Solution: `Jtag<V, S>` with Marker Traits
+### Решение: `Jtag<V, S>` с маркерами трейтов
 
-**Step 1 — State tokens and capability markers:**
+**Шаг 1 — Токены состояния и маркеры возможностей:**
 
 ```rust,ignore
 use std::marker::PhantomData;
 
-// Zero-sized state tokens — no runtime cost
+// Токены состояния нулевого размера — без накладных расходов во время выполнения
 struct Locked;
 struct Unlocked;
 struct ExtendedUnlocked;
 
-// Marker traits express which capabilities each state has
+// Трейты-маркеры описывают, какими возможностями обладает каждое состояние
 trait HasRegAccess {}
 impl HasRegAccess for Unlocked {}
 impl HasRegAccess for ExtendedUnlocked {}
@@ -829,24 +798,21 @@ trait HasMemAccess {}
 impl HasMemAccess for ExtendedUnlocked {}
 ```
 
-> **Why marker traits, not just concrete states?**
-> Writing `impl<V, S: HasRegAccess> Jtag<V, S>` means `read_reg()` works in
-> *any* state with register access — today that's `Unlocked` and `ExtendedUnlocked`,
-> but if you add `DebugHalted` tomorrow, you just add one line:
-> `impl HasRegAccess for DebugHalted {}`. Every register function works with
-> it automatically — zero code changes.
+> **Почему маркерные трейты, а не просто конкретные состояния?**
+> Написание `impl<V, S: HasRegAccess> Jtag<V, S>` означает, что метод `read_reg()` работает в *любом* состоянии с доступом к регистрам — на сегодня это `Unlocked` and `ExtendedUnlocked`. Но если завтра вы добавите состояние `DebugHalted`, вам потребуется дописать всего одну строчку:
+> `impl HasRegAccess for DebugHalted {}`. Все функции работы с регистрами заработают с ним автоматически — без каких-либо изменений в их коде.
 
-**Step 2 — Vendor traits (raw operations):**
+**Шаг 2 — Трейты производителей (низкоуровневые операции):**
 
 ```rust,ignore
-// Every probe vendor implements these
+// Каждый производитель зондов реализует эти методы
 trait JtagVendor {
     fn raw_unlock(&mut self);
     fn raw_read_reg(&self, addr: u32) -> u32;
     fn raw_write_reg(&mut self, addr: u32, val: u32);
 }
 
-// Vendors with memory access also implement this super-trait
+// Производители с поддержкой доступа к памяти также реализуют этот супертрейт (super-trait)
 trait JtagMemoryVendor: JtagVendor {
     fn raw_extended_unlock(&mut self);
     fn raw_read_memory(&self, addr: u64, buf: &mut [u8]);
@@ -854,7 +820,7 @@ trait JtagMemoryVendor: JtagVendor {
 }
 ```
 
-**Step 3 — The wrapper with conditional `impl` blocks:**
+**Шаг 3 — Обёртка с условными блоками `impl`:**
 
 ```rust,ignore
 struct Jtag<V, S = Locked> {
@@ -862,7 +828,7 @@ struct Jtag<V, S = Locked> {
     _state: PhantomData<S>,
 }
 
-// Construction — always starts Locked
+// Создание — всегда начинается с состояния Locked
 impl<V: JtagVendor> Jtag<V, Locked> {
     fn new(vendor: V) -> Self {
         Jtag { vendor, _state: PhantomData }
@@ -874,7 +840,7 @@ impl<V: JtagVendor> Jtag<V, Locked> {
     }
 }
 
-// Register I/O — any vendor, any state with HasRegAccess
+// Ввод-вывод регистров — любой производитель, любое состояние с поддержкой HasRegAccess
 impl<V: JtagVendor, S: HasRegAccess> Jtag<V, S> {
     fn read_reg(&self, addr: u32) -> u32 {
         self.vendor.raw_read_reg(addr)
@@ -884,7 +850,7 @@ impl<V: JtagVendor, S: HasRegAccess> Jtag<V, S> {
     }
 }
 
-// Extended unlock — only memory-capable vendors, only from Unlocked
+// Расширенная разблокировка — только для производителей с поддержкой памяти и только из состояния Unlocked
 impl<V: JtagMemoryVendor> Jtag<V, Unlocked> {
     fn extended_unlock(mut self) -> Jtag<V, ExtendedUnlocked> {
         self.vendor.raw_extended_unlock();
@@ -892,7 +858,7 @@ impl<V: JtagMemoryVendor> Jtag<V, Unlocked> {
     }
 }
 
-// Memory I/O — only memory-capable vendors, only ExtendedUnlocked
+// Ввод-вывод памяти — только для производителей с поддержкой памяти и только в состоянии ExtendedUnlocked
 impl<V: JtagMemoryVendor, S: HasMemAccess> Jtag<V, S> {
     fn read_memory(&self, addr: u64, buf: &mut [u8]) {
         self.vendor.raw_read_memory(addr, buf);
@@ -903,81 +869,77 @@ impl<V: JtagMemoryVendor, S: HasMemAccess> Jtag<V, S> {
 }
 ```
 
-Each `impl` block encodes one cell (or row) of the capability matrix.
-The compiler enforces the matrix — no runtime checks anywhere.
+Каждый блок `impl` кодирует одну ячейку (или строку) матрицы возможностей.
+Компилятор сам следит за соблюдением правил матрицы — никаких проверок времени выполнения здесь нет.
 
-### Vendor Implementations
+### Реализации от производителей
 
-Adding a vendor means implementing raw methods on **one struct** — no
-per-state struct duplication, no delegation boilerplate:
+Добавление поддержки производителя означает реализацию низкоуровневых (raw) методов для **одной структуры** — никакого дублирования структур под каждое состояние или шаблонного кода делегирования:
 
 ```rust,ignore
-// Vendor A: basic probe — register access only
+// Производитель A: базовый зонд — только доступ к регистрам
 struct BasicProbe { port: u16 }
 
 impl JtagVendor for BasicProbe {
-    fn raw_unlock(&mut self)                    { /* TAP reset sequence */ }
-    fn raw_read_reg(&self, addr: u32) -> u32    { /* DR scan */  0 }
-    fn raw_write_reg(&mut self, addr: u32, val: u32) { /* DR scan */ }
+    fn raw_unlock(&mut self)                    { /* последовательность сброса TAP */ }
+    fn raw_read_reg(&self, addr: u32) -> u32    { /* сканирование DR */  0 }
+    fn raw_write_reg(&mut self, addr: u32, val: u32) { /* сканирование DR */ }
 }
-// BasicProbe does NOT impl JtagMemoryVendor.
-// extended_unlock() will not compile on Jtag<BasicProbe, _>.
+// BasicProbe НЕ реализует JtagMemoryVendor.
+// Метод extended_unlock() не скомпилируется для Jtag<BasicProbe, _>.
 
-// Vendor B: full-featured probe — registers + memory
+// Производитель B: полнофункциональный зонд — регистры + память
 struct DapProbe { serial: String }
 
 impl JtagVendor for DapProbe {
-    fn raw_unlock(&mut self)                    { /* SWD switch, read DPIDR */ }
-    fn raw_read_reg(&self, addr: u32) -> u32    { /* AP register read */ 0 }
-    fn raw_write_reg(&mut self, addr: u32, val: u32) { /* AP register write */ }
+    fn raw_unlock(&mut self)                    { /* переключение SWD, чтение DPIDR */ }
+    fn raw_read_reg(&self, addr: u32) -> u32    { /* чтение регистра AP */ 0 }
+    fn raw_write_reg(&mut self, addr: u32, val: u32) { /* запись в регистр AP */ }
 }
 
 impl JtagMemoryVendor for DapProbe {
-    fn raw_extended_unlock(&mut self)           { /* select MEM-AP, power up */ }
-    fn raw_read_memory(&self, addr: u64, buf: &mut [u8])  { /* MEM-AP read */ }
-    fn raw_write_memory(&mut self, addr: u64, data: &[u8]) { /* MEM-AP write */ }
+    fn raw_extended_unlock(&mut self)           { /* выбор MEM-AP, подача питания */ }
+    fn raw_read_memory(&self, addr: u64, buf: &mut [u8])  { /* чтение MEM-AP */ }
+    fn raw_write_memory(&mut self, addr: u64, data: &[u8]) { /* запись в MEM-AP */ }
 }
 ```
 
-### What the Compiler Prevents
+### Что предотвращает компилятор
 
-| Attempt | Error | Why |
+| Попытка | Ошибка | Почему |
 |---------|-------|-----|
-| `Jtag<_, Locked>::read_reg()` | no method `read_reg` | `Locked` doesn't impl `HasRegAccess` |
-| `Jtag<BasicProbe, _>::extended_unlock()` | no method `extended_unlock` | `BasicProbe` doesn't impl `JtagMemoryVendor` |
-| `Jtag<_, Unlocked>::read_memory()` | no method `read_memory` | `Unlocked` doesn't impl `HasMemAccess` |
-| Calling `unlock()` twice | value used after move | `unlock()` consumes `self` |
+| `Jtag<_, Locked>::read_reg()` | метод `read_reg` не найден | `Locked` не реализует `HasRegAccess` |
+| `Jtag<BasicProbe, _>::extended_unlock()` | метод `extended_unlock` не найден | `BasicProbe` не реализует `JtagMemoryVendor` |
+| `Jtag<_, Unlocked>::read_memory()` | метод `read_memory` не найден | `Unlocked` не реализует `HasMemAccess` |
+| Повторный вызов `unlock()` | значение использовано после перемещения | `unlock()` потребляет `self` |
 
-All four errors are caught **at compile time**. No panics, no `Option`, no runtime state enum.
+Все четыре ошибки отлавливаются **на этапе компиляции**. Никаких паник, никаких `Option`, никаких перечислений (enums) состояния времени выполнения.
 
-### Writing Generic Functions
+### Написание обобщённых функций
 
-Functions bind only the axes they care about:
+Функции привязываются только к тем осям, которые им действительно важны:
 
 ```rust,ignore
-/// Works with ANY vendor, ANY state that grants register access.
+/// Работает с ЛЮБЫМ производителем в ЛЮБОМ состоянии, которое дает доступ к регистрам.
 fn read_idcode<V: JtagVendor, S: HasRegAccess>(jtag: &Jtag<V, S>) -> u32 {
     jtag.read_reg(0x00)
 }
 
-/// Only compiles for memory-capable vendors in ExtendedUnlocked state.
+/// Компилируется только для производителей с поддержкой памяти в состоянии ExtendedUnlocked.
 fn dump_firmware<V: JtagMemoryVendor, S: HasMemAccess>(jtag: &Jtag<V, S>) {
     let mut buf = [0u8; 256];
     jtag.read_memory(0x0800_0000, &mut buf);
 }
 ```
 
-`read_idcode` doesn't care whether you're in `Unlocked` or `ExtendedUnlocked` —
-it only requires `HasRegAccess`. This is where marker traits pay off over
-hardcoding specific states in signatures.
+Функции `read_idcode` не важно, находитесь ли вы в состоянии `Unlocked` или `ExtendedUnlocked` — ей требуется только выполнение ограничения `HasRegAccess`. Именно здесь проявляется преимущество использования маркерных трейтов по сравнению с жестким кодированием конкретных состояний в сигнатурах.
 
-### Same Pattern, Different Domain: Storage Backends
+### Тот же шаблон в другой предметной области: Бэкенды хранилищ данных
 
-The dual-axis technique isn't hardware-specific. Here's the same structure
-for a storage layer where some backends support transactions:
+Этот двухосный подход не привязан к аппаратному обеспечению. Ниже показана аналогичная структура для слоя хранения данных, где лишь некоторые бэкенды поддерживают транзакции:
 
 ```rust,ignore
-// States
+// Состояния
 struct Closed;
 struct Open;
 struct InTransaction;
@@ -986,7 +948,7 @@ trait HasReadWrite {}
 impl HasReadWrite for Open {}
 impl HasReadWrite for InTransaction {}
 
-// Vendor traits
+// Трейты производителей (бэкендов)
 trait StorageBackend {
     fn raw_open(&mut self);
     fn raw_read(&self, key: &[u8]) -> Option<Vec<u8>>;
@@ -999,7 +961,7 @@ trait TransactionalBackend: StorageBackend {
     fn raw_rollback(&mut self);
 }
 
-// Wrapper
+// Обёртка
 struct Store<B, S = Closed> { backend: B, _s: PhantomData<S> }
 
 impl<B: StorageBackend> Store<B, Closed> {
@@ -1018,49 +980,38 @@ impl<B: TransactionalBackend> Store<B, InTransaction> {
 }
 ```
 
-A flat-file backend implements `StorageBackend` only — `begin()` won't
-compile. A database backend adds `TransactionalBackend` — the full
-`Open → InTransaction → Open` cycle becomes available.
+Простой бэкенд на базе плоских файлов реализует только `StorageBackend` — для него вызов `begin()` не скомпилируется. Бэкенд базы данных дополнительно реализует `TransactionalBackend` — для него становится доступен полный цикл `Open → InTransaction → Open`.
 
-### When to Reach for This Pattern
+### Когда стоит применять этот шаблон
 
-| Signal | Why dual-axis fits |
+| Сигнал | Почему подходит двухосный подход |
 |--------|--------------------|
-| Two independent axes: "who provides it" and "what state is it in" | The `impl` block matrix directly encodes both |
-| Some providers have strictly more capabilities than others | Super-trait (`MemoryVendor: Vendor`) + conditional `impl` |
-| Misusing state or capability is a safety/correctness bug | Compile-time prevention > runtime checks |
-| You want static dispatch (no vtables) | `PhantomData` + generics = zero-cost |
+| Две независимые оси: «кто предоставляет функционал» и «в каком состоянии он находится» | Матрица блоков `impl` напрямую кодирует обе оси |
+| Некоторые провайдеры обладают строго бóльшими возможностями, чем другие | Супертрейт (`MemoryVendor: Vendor`) + условный `impl` |
+| Ошибка в использовании состояния или возможностей является багом безопасности/коррексности | Предотвращение ошибок на этапе компиляции > проверки во время выполнения |
+| Требуется статическая диспетчеризация (без vtables) | `PhantomData` + обобщения (generics) = нулевая стоимость |
 
-| Signal | Consider something simpler |
+| Сигнал | Подумайте о более простом решении |
 |--------|---------------------------|
-| Only one axis varies (state OR vendor, not both) | Single-axis typestate or plain trait objects |
-| Three or more independent axes | Config Trait Pattern (above) bundles axes into associated types |
-| Runtime polymorphism is acceptable | `enum` state + `dyn` dispatch is simpler |
+| Меняется только одна ось (состояние ИЛИ производитель, но не оба сразу) | Одноосный typestate или обычные объекты трейтов |
+| Три или более независимых оси | Шаблон Config Trait (описан выше) объединяет оси в ассоциированные типы |
+| Допустим полиморфизм времени выполнения | Перечисление (`enum`) для состояния + диспетчеризация `dyn` проще |
 
-> **When two axes become three or more:**
-> If you find yourself writing `Handle<V, S, D, T>` — vendor, state, debug
-> level, transport — the generic parameter list is telling you something.
-> Consider collapsing the *vendor* axis into an associated-type config trait
-> (the [Config Trait Pattern](#config-trait-pattern--taming-generic-parameter-explosion)
-> from earlier in this chapter), keeping only the *state* axis as a generic
-> parameter: `Handle<Cfg, S>`. The config trait bundles `type Vendor`, `type Transport`, etc.
-> into one parameter, and the state axis retains its compile-time transition guarantees.
-> This is a natural evolution, not a rewrite — you lift vendor-related types
-> into `Cfg` and leave the typestate machinery untouched.
+> **Когда две оси превращаются в три или более:**
+> Если вы ловите себя на написании сигнатур вроде `Handle<V, S, D, T>` (производитель, состояние, уровень отладки, транспорт), то список обобщённых параметров прозрачно намекает на проблему.
+> Попробуйте свернуть ось *производителя* в ассоциированный тип config-трейта (см. раздел [Шаблон Config Trait — укрощение взрывного роста обобщённых параметров](#config-trait-pattern--taming-generic-parameter-explosion) выше в этой главе), оставив только ось *состояния* в качестве обобщённого параметра: `Handle<Cfg, S>`. Config-трейт объединит `type Vendor`, `type Transport` и т. д. в один параметр, в то время как ось состояния сохранит свои гарантии переходов во время компиляции.
+> Это естественная эволюция архитектуры, а не полная её переработка — вы просто переносите типы, связанные с производителем, в `Cfg`, оставляя механизм typestate без изменений.
 
-> **Key Takeaway:** The dual-axis pattern is the intersection of typestate and
-> trait-based abstraction. Each `impl` block maps to one cell of the
-> (vendor × state) matrix. The compiler enforces the entire matrix — no
-> runtime state checks, no impossible-state panics, no cost.
+> **Главный вывод:** Двухосный шаблон представляет собой пересечение typestate и абстракции на базе трейтов. Каждый блок `impl` соответствует одной ячейке матрицы (производитель × состояние). Компилятор полностью контролирует всю матрицу — никаких проверок состояния во время выполнения, никаких паник из-за невозможных состояний и никаких накладных расходов.
 
 ---
 
-### Exercise: Type-Safe State Machine ★★ (~30 min)
+### Упражнение: Безопасный конечный автомат ★★ (~30 мин)
 
-Build a traffic light state machine using the type-state pattern. The light must transition `Red → Green → Yellow → Red` and no other order should be possible.
+Создайте конечный автомат светофора, используя шаблон type-state. Светофор должен переключаться в строгом порядке `Red → Green → Yellow → Red` (Красный → Зеленый → Желтый → Красный), и никакой другой порядок не должен быть возможен.
 
 <details>
-<summary>🔑 Solution</summary>
+<summary>🔑 Решение</summary>
 
 ```rust
 use std::marker::PhantomData;
@@ -1075,44 +1026,43 @@ struct TrafficLight<State> {
 
 impl TrafficLight<Red> {
     fn new() -> Self {
-        println!("🔴 Red — STOP");
+        println!("🔴 Красный — СТОП");
         TrafficLight { _state: PhantomData }
     }
 
     fn go(self) -> TrafficLight<Green> {
-        println!("🟢 Green — GO");
+        println!("🟢 Зеленый — ИДТИ");
         TrafficLight { _state: PhantomData }
     }
 }
 
 impl TrafficLight<Green> {
     fn caution(self) -> TrafficLight<Yellow> {
-        println!("🟡 Yellow — CAUTION");
+        println!("🟡 Желтый — ВНИМАНИЕ");
         TrafficLight { _state: PhantomData }
     }
 }
 
 impl TrafficLight<Yellow> {
     fn stop(self) -> TrafficLight<Red> {
-        println!("🔴 Red — STOP");
+        println!("🔴 Красный — СТОП");
         TrafficLight { _state: PhantomData }
     }
 }
 
 fn main() {
-    let light = TrafficLight::new(); // Red
-    let light = light.go();          // Green
-    let light = light.caution();     // Yellow
-    let _light = light.stop();       // Red
+    let light = TrafficLight::new(); // Красный
+    let light = light.go();          // Зеленый
+    let light = light.caution();     // Желтый
+    let _light = light.stop();       // Красный
 
-    // light.caution(); // ❌ Compile error: no method `caution` on Red
-    // TrafficLight::new().stop(); // ❌ Compile error: no method `stop` on Red
+    // light.caution(); // ❌ Ошибка компиляции: метод `caution` отсутствует у Red
+    // TrafficLight::new().stop(); // ❌ Ошибка компиляции: метод `stop` отсутствует у Red
 }
 ```
 
-**Key takeaway**: Invalid transitions are compile errors, not runtime panics.
+**Главный вывод**: Недопустимые переходы являются ошибками компиляции, а не паниками во время выполнения.
 
 </details>
 
 ***
-

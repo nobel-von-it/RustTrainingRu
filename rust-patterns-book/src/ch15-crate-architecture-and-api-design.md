@@ -1,71 +1,71 @@
-# 15. Crate Architecture and API Design 🟡
+# 15. Архитектура крейтов и проектирование API 🟡
 
-> **What you'll learn:**
-> - Module layout conventions and re-export strategies
-> - The public API design checklist for polished crates
-> - Ergonomic parameter patterns: `impl Into`, `AsRef`, `Cow`
-> - "Parse, don't validate" with `TryFrom` and validated types
-> - Feature flags, conditional compilation, and workspace organization
+> **Что вы узнаете:**
+> - Соглашения о структуре модулей и стратегии реэкспорта
+> - Контрольный список проектирования публичного API для качественных крейтов
+> - Эргономичные паттерны параметров: `impl Into`, `AsRef`, `Cow`
+> - Подход «парсите, а не валидируйте» (Parse, don't validate) с использованием `TryFrom` и валидированных типов
+> - Feature-флаги, условная компиляция и организация рабочих пространств (workspaces)
 
-## Module Layout Conventions
+## Соглашения о структуре модулей
 
 ```text
 my_crate/
 ├── Cargo.toml
 ├── src/
-│   ├── lib.rs          # Crate root — re-exports and public API
-│   ├── config.rs       # Feature module
-│   ├── parser/         # Complex module with sub-modules
-│   │   ├── mod.rs      # or parser.rs at parent level (Rust 2018+)
+│   ├── lib.rs          # Корневой файл крейта — реэкспорты и публичный API
+│   ├── config.rs       # Модуль конфигурации (фичи)
+│   ├── parser/         # Сложный модуль с подмодулями
+│   │   ├── mod.rs      # или parser.rs на родительском уровне (Rust 2018+)
 │   │   ├── lexer.rs
 │   │   └── ast.rs
-│   ├── error.rs        # Error types
-│   └── utils.rs        # Internal helpers (pub(crate))
+│   ├── error.rs        # Типы ошибок
+│   └── utils.rs        # Внутренние вспомогательные элементы (pub(crate))
 ├── tests/
-│   └── integration.rs  # Integration tests
+│   └── integration.rs  # Интеграционные тесты
 ├── benches/
-│   └── perf.rs         # Benchmarks
+│   └── perf.rs         # Бенчмарки
 └── examples/
     └── basic.rs        # cargo run --example basic
 ```
 
 ```rust
-// lib.rs — curate your public API with re-exports:
+// lib.rs — формируйте ваш публичный API с помощью реэкспорта:
 mod config;
 mod error;
 mod parser;
 mod utils;
 
-// Re-export what users need:
+// Реэкспортируйте то, что нужно пользователям:
 pub use config::Config;
 pub use error::Error;
 pub use parser::Parser;
 
-// Public types are at the crate root — users write:
+// Публичные типы находятся в корне крейта — пользователи пишут:
 // use my_crate::Config;
-// NOT: use my_crate::config::Config;
+// НО НЕ: use my_crate::config::Config;
 ```
 
-**Visibility modifiers**:
+**Модификаторы видимости**:
 
-| Modifier | Visible To |
-|----------|-----------|
-| `pub` | Everyone |
-| `pub(crate)` | This crate only |
-| `pub(super)` | Parent module |
-| `pub(in path)` | Specific ancestor module |
-| (none) | Current module and its children |
+| Модификатор | Кому виден |
+|-------------|------------|
+| `pub` | Всем |
+| `pub(crate)` | Только внутри этого крейта |
+| `pub(super)` | Родителю текущего модуля |
+| `pub(in path)` | Конкретному модулю-предку (по пути) |
+| (нет) | Текущему модулю и его дочерним модулям |
 
-### Public API Design Checklist
+### Контрольный список для проектирования публичного API
 
-1. **Accept references, return owned** — `fn process(input: &str) -> String`
-2. **Use `impl Trait` for parameters** — `fn read(r: impl Read)` instead of `fn read<R: Read>(r: R)` for cleaner signatures
-3. **Return `Result`, not `panic!`** — let callers decide how to handle errors
-4. **Implement standard traits** — `Debug`, `Display`, `Clone`, `Default`, `From`/`Into`
-5. **Make invalid states unrepresentable** — use type states and newtypes
-6. **Follow the builder pattern for complex configuration** — with type-state if fields are required
-7. **Seal traits you don't want users to implement** — `pub trait Sealed: private::Sealed {}`
-8. **Mark types and functions `#[must_use]`** — prevents silent discard of important `Result`s, guards, or values. Apply to any type where ignoring the return value is almost certainly a bug:
+1. **Принимайте ссылки, возвращайте владеемые типы** — `fn process(input: &str) -> String`
+2. **Используйте `impl Trait` для параметров** — `fn read(r: impl Read)` вместо `fn read<R: Read>(r: R)` для более лаконичных сигнатур
+3. **Возвращайте `Result`, а не `panic!`** — пусть вызывающий код решает, как обрабатывать ошибки
+4. **Реализуйте стандартные типажи (traits)** — `Debug`, `Display`, `Clone`, `Default`, `From`/`Into`
+5. **Делайте невалидные состояния невыразимыми** — используйте состояния типов (type states) и новые типы (newtypes)
+6. **Следуйте паттерну «строитель» (builder) для сложных конфигураций** — со свойствами состояний типов (type-state), если поля обязательны
+7. **Запечатывайте типажи (seal traits), которые пользователи не должны реализовывать самостоятельно** — `pub trait Sealed: private::Sealed {}`
+8. **Помечайте типы и функции атрибутом `#[must_use]`** — это предотвращает случайное игнорирование важных `Result`, гардов (guards) или значений. Применяйте к любым типам, где игнорирование возвращаемого значения почти наверняка является ошибкой:
    ```rust
    #[must_use = "dropping the guard immediately releases the lock"]
    pub struct LockGuard<'a, T> { /* ... */ }
@@ -75,7 +75,7 @@ pub use parser::Parser;
    ```
 
 ```rust
-// Sealed trait pattern — users can use but not implement:
+// Паттерн «запечатанный типаж» (Sealed trait pattern) — пользователи могут использовать его, но не реализовывать:
 mod private {
     pub trait Sealed {}
 }
@@ -84,7 +84,7 @@ pub trait DatabaseDriver: private::Sealed {
     fn connect(&self, url: &str) -> Connection;
 }
 
-// Only types in THIS crate can implement Sealed → only we can implement DatabaseDriver
+// Только типы внутри ЭТОГО крейта могут реализовать Sealed → только мы можем реализовать DatabaseDriver
 pub struct PostgresDriver;
 impl private::Sealed for PostgresDriver {}
 impl DatabaseDriver for PostgresDriver {
@@ -92,63 +92,55 @@ impl DatabaseDriver for PostgresDriver {
 }
 ```
 
-> **`#[non_exhaustive]`** — mark public enums and structs so that adding variants
-> or fields is not a breaking change. Downstream crates must use a wildcard arm
-> (`_ =>`) in match statements, and cannot construct the type with struct literal
-> syntax:
+> **`#[non_exhaustive]`** — помечайте этим атрибутом публичные перечисления (enums) и структуры, чтобы добавление новых вариантов или полей не приводило к критическим изменениям (breaking changes). Зависимые крейты будут вынуждены использовать шаблон соответствия по умолчанию (`_ =>`) в выражениях `match`, а также не смогут конструировать тип с помощью синтаксиса структурных литералов:
 > ```rust
 > #[non_exhaustive]
 > pub enum DiagError {
 >     Timeout,
 >     HardwareFault,
->     // Adding a new variant in a future release is NOT a semver break.
+>     // Добавление нового варианта в будущем релизе НЕ нарушает семантическое версионирование (semver).
 > }
 > ```
 
-### Ergonomic Parameter Patterns — `impl Into`, `AsRef`, `Cow`
+### Эргономичные паттерны параметров — `impl Into`, `AsRef`, `Cow`
 
-One of Rust's most impactful API patterns is accepting the **most general type** in
-function parameters, so callers don't need repetitive `.to_string()`, `&*s`, or `.as_ref()`
-at every call site. This is the Rust-specific version of "be liberal in what you accept."
+Один из наиболее эффективных паттернов API в Rust — это принятие **наиболее общего типа** в параметрах функций, чтобы вызывающей стороне не приходилось многократно писать `.to_string()`, `&*s` или `.as_ref()` при каждом вызове. Это специфичная для Rust версия принципа «будьте либеральны к тому, что принимаете».
 
-#### `impl Into<T>` — Accept Anything Convertible
+#### `impl Into<T>` — Принятие любых преобразуемых типов
 
 ```rust
-// ❌ Friction: callers must convert manually
+// ❌ Неудобно: вызывающий код должен выполнять преобразование вручную
 fn connect(host: String, port: u16) -> Connection {
     // ...
 }
-connect("localhost".to_string(), 5432);  // Annoying .to_string()
-connect(hostname.clone(), 5432);          // Unnecessary clone if we already have String
+connect("localhost".to_string(), 5432);  // Раздражающий .to_string()
+connect(hostname.clone(), 5432);          // Ненужный клон, если у нас уже есть String
 
-// ✅ Ergonomic: accept anything that converts to String
+// ✅ Эргономично: принимаем все, что может быть преобразовано в String
 fn connect(host: impl Into<String>, port: u16) -> Connection {
-    let host = host.into();  // Convert once, inside the function
+    let host = host.into();  // Преобразуем один раз внутри функции
     // ...
 }
-connect("localhost", 5432);     // &str — zero friction
-connect(hostname, 5432);        // String — moved, no clone
+connect("localhost", 5432);     // &str — без лишних усилий
+connect(hostname, 5432);        // String — перемещено, без клонирования
 ```
 
-This works because Rust's `From`/`Into` trait pair provides blanket conversions.
-When you accept `impl Into<T>`, you're saying: "give me anything that knows how to
-become a `T`."
+Это работает, потому что пара типажей `From`/`Into` в Rust предоставляет обобщенные реализации преобразований (blanket conversions). Когда вы принимаете `impl Into<T>`, вы говорите: «дайте мне всё, что умеет превращаться в `T`».
 
-#### `AsRef<T>` — Borrow as a Reference
+#### `AsRef<T>` — Заимствование в виде ссылки
 
-`AsRef<T>` is the borrowing counterpart to `Into<T>`. Use it when you only need
-to *read* the data, not take ownership:
+`AsRef<T>` — это аналог `Into<T>` для заимствования. Используйте его, когда вам нужно только *прочитать* данные, а не забрать владение:
 
 ```rust
 use std::path::Path;
 
-// ❌ Forces callers to convert to &Path
+// ❌ Заставляет вызывающий код выполнять преобразование в &Path
 fn file_exists(path: &Path) -> bool {
     path.exists()
 }
-file_exists(Path::new("/tmp/test.txt"));  // Awkward
+file_exists(Path::new("/tmp/test.txt"));  // Неудобно
 
-// ✅ Accept anything that can behave as a &Path
+// ✅ Принимает все, что может вести себя как &Path
 fn file_exists(path: impl AsRef<Path>) -> bool {
     path.as_ref().exists()
 }
@@ -157,7 +149,7 @@ file_exists(String::from("/tmp/test.txt"));      // String ✅
 file_exists(Path::new("/tmp/test.txt"));         // &Path ✅
 file_exists(PathBuf::from("/tmp/test.txt"));     // PathBuf ✅
 
-// Same pattern for string-like parameters:
+// Тот же паттерн для строкоподобных параметров:
 fn log_message(msg: impl AsRef<str>) {
     println!("[LOG] {}", msg.as_ref());
 }
@@ -165,66 +157,63 @@ log_message("hello");                    // &str ✅
 log_message(String::from("hello"));      // String ✅
 ```
 
-#### `Cow<T>` — Clone on Write
+#### `Cow<T>` — Клонирование при записи (Clone on Write)
 
-`Cow<'a, T>` (Clone on Write) delays allocation until mutation is needed.
-It holds either a borrowed `&T` or an owned `T::Owned`. This is perfect when
-most calls don't need to modify the data:
+`Cow<'a, T>` (Clone on Write, клонирование при записи) откладывает выделение памяти до тех пор, пока не потребуется изменение данных. Оно хранит либо заимствованное значение `&T`, либо владеемое `T::Owned`. Это идеальный выбор, когда в большинстве вызовов модифицировать данные не нужно:
 
 ```rust
 use std::borrow::Cow;
 
-/// Normalizes a diagnostic message — only allocates if changes are needed.
+/// Нормализует диагностическое сообщение — выделяет память только при необходимости изменений.
 fn normalize_message(msg: &str) -> Cow<'_, str> {
     if msg.contains('\t') || msg.contains('\r') {
-        // Must allocate — we need to modify the content
+        // Требуется выделение памяти — нужно изменить содержимое
         Cow::Owned(msg.replace('\t', "    ").replace('\r', ""))
     } else {
-        // No allocation — just borrow the original
+        // Без выделения памяти — просто заимствуем оригинал
         Cow::Borrowed(msg)
     }
 }
 
-// Most messages pass through without allocation:
-let clean = normalize_message("All tests passed");          // Borrowed — free
-let fixed = normalize_message("Error:\tfailed\r\n");        // Owned — allocated
+// Большинство сообщений проходят без выделения памяти:
+let clean = normalize_message("All tests passed");          // Заимствовано (Borrowed) — бесплатно
+let fixed = normalize_message("Error:\tfailed\r\n");        // Владеется (Owned) — память выделена
 
-// Cow<str> implements Deref<Target=str>, so it works like &str:
+// Cow<str> реализует Deref<Target=str>, поэтому работает так же, как &str:
 println!("{}", clean);
 println!("{}", fixed.to_uppercase());
 ```
 
-#### Quick Reference: Which to Use
+#### Краткий справочник: что использовать
 
 ```text
-Do you need ownership of the data inside the function?
-├── YES → impl Into<T>
-│         "Give me anything that can become a T"
-└── NO  → Do you only need to read it?
-     ├── YES → impl AsRef<T> or &T
-     │         "Give me anything I can borrow as a &T"
-     └── MAYBE (might need to modify sometimes?)
+Нужно ли вам владение данными внутри функции?
+├── ДА  → impl Into<T>
+│         «Дайте мне всё, что может быть преобразовано в T»
+└── НЕТ → Вам нужно только прочитать данные?
+     ├── ДА  → impl AsRef<T> или &T
+     │         «Дайте мне всё, что я могу заимствовать как &T»
+     └── ВОЗМОЖНО (может потребоваться иногда изменять?)
           └── Cow<'_, T>
-              "Borrow if possible, clone only when you must"
+              «Заимствовать, если возможно; клонировать только при необходимости»
 ```
 
-| Pattern | Ownership | Allocation | When to use |
+| Паттерн | Владение | Выделение памяти | Когда использовать |
 |---------|-----------|------------|-------------|
-| `&str` | Borrowed | Never | Simple string params |
-| `impl AsRef<str>` | Borrowed | Never | Accept String, &str, etc. — read only |
-| `impl Into<String>` | Owned | On conversion | Accept &str, String — will store/own |
-| `Cow<'_, str>` | Either | Only if modified | Processing that usually doesn't modify |
-| `&[u8]` / `impl AsRef<[u8]>` | Borrowed | Never | Byte-oriented APIs |
+| `&str` | Заимствованное | Никогда | Простые строковые параметры |
+| `impl AsRef<str>` | Заимствованное | Никогда | Принятие String, &str и т. д. — только для чтения |
+| `impl Into<String>` | Владеемое | При преобразовании | Принятие &str, String — для хранения/владения |
+| `Cow<'_, str>` | И то, и другое | Только при модификации | Обработка, которая обычно не изменяет данные |
+| `&[u8]` / `impl AsRef<[u8]>` | Заимствованное | Никогда | API, работающие с байтами |
 
-> **`Borrow<T>` vs `AsRef<T>`**: Both provide `&T`, but `Borrow<T>` additionally
-> guarantees that `Eq`, `Ord`, and `Hash` are **consistent** between the original
-> and borrowed form. This is why `HashMap<String, V>::get()` accepts `&Q where String: Borrow<Q>` — not `AsRef`. Use `Borrow` when the borrowed form is used
-> as a lookup key; use `AsRef` for general "give me a reference" parameters.
+> **`Borrow<T>` против `AsRef<T>`**: оба возвращают ссылку `&T`, но `Borrow<T>` дополнительно
+> гарантирует, что поведение `Eq`, `Ord` и `Hash` является **согласованным** между исходной
+> и заимствованной формами. Вот почему метод `HashMap<String, V>::get()` принимает тип `&Q, где String: Borrow<Q>`, а не `AsRef`. Используйте `Borrow`, когда заимствованная форма выступает в качестве ключа поиска; используйте `AsRef` для обычных параметров типа «предоставить ссылку».
 
-#### Composing Conversions in APIs
+#### Сочетание преобразований в API
 
 ```rust
-/// A well-designed diagnostic API using ergonomic parameters:
+/// Хорошо спроектированный API диагностики с использованием эргономичных параметров:
 pub struct DiagRunner {
     name: String,
     config_path: PathBuf,
@@ -232,7 +221,7 @@ pub struct DiagRunner {
 }
 
 impl DiagRunner {
-    /// Accept any string-like type for name, any path-like type for config.
+    /// Принимает любой строкоподобный тип для name и любой путиподобный тип для config.
     pub fn new(
         name: impl Into<String>,
         config_path: impl Into<PathBuf>,
@@ -243,13 +232,13 @@ impl DiagRunner {
         }
     }
 
-    /// Accept any AsRef<str> for read-only lookup.
+    /// Принимает любой AsRef<str> для поиска только для чтения.
     pub fn get_result(&self, test_name: impl AsRef<str>) -> Option<&TestResult> {
         self.results.get(test_name.as_ref())
     }
 }
 
-// All of these work with zero caller friction:
+// Все эти варианты работают без лишних сложностей для вызывающей стороны:
 let runner = DiagRunner::new("GPU Diag", "/etc/diag_tool/config.json");
 let runner = DiagRunner::new(format!("Diag-{}", node_id), config_path);
 let runner = DiagRunner::new(name_string, path_buf);
@@ -257,103 +246,101 @@ let runner = DiagRunner::new(name_string, path_buf);
 
 ***
 
-## Case Study: Designing a Public Crate API — Before & After
+## Практический пример: проектирование публичного API крейта — До и после
 
-A real-world example of evolving a stringly-typed internal API into an ergonomic, type-safe public API. Consider a configuration parser crate:
+Реальный пример эволюции внутреннего API со строковой типизацией (stringly-typed) в эргономичный, типизированный публичный API. Рассмотрим крейт для парсинга конфигурации:
 
-**Before** (stringly-typed, easy to misuse):
+**До** (со строковой типизацией, легко ошибиться при использовании):
 
 ```rust
-// ❌ All parameters are strings — no compile-time validation
+// ❌ Все параметры являются строками — нет валидации на этапе компиляции
 pub fn parse_config(path: &str, format: &str, strict: bool) -> Result<Config, String> {
-    // What formats are valid? "json"? "JSON"? "Json"?
-    // Is path a file path or URL?
-    // What does "strict" even mean?
+    // Какие форматы валидны? "json"? "JSON"? "Json"?
+    // Является ли path путем к файлу или URL?
+    // Что вообще означает "strict"?
     todo!()
 }
 ```
 
-**After** (type-safe, self-documenting):
+**После** (типобезопасный, самодокументируемый):
 
 ```rust
 use std::path::Path;
 
-/// Supported configuration formats.
+/// Поддерживаемые форматы конфигурации.
 #[derive(Debug, Clone, Copy)]
-#[non_exhaustive]  // Adding formats won't break downstream
+#[non_exhaustive]  // Добавление новых форматов в будущем не сломает код пользователей
 pub enum Format {
     Json,
     Toml,
     Yaml,
 }
 
-/// Controls parsing strictness.
+/// Управляет строгостью парсинга.
 #[derive(Debug, Clone, Copy, Default)]
 pub enum Strictness {
-    /// Reject unknown fields (default for libraries)
+    /// Отклонять неизвестные поля (по умолчанию для библиотек)
     #[default]
     Strict,
-    /// Ignore unknown fields (useful for forward-compatible configs)
+    /// Игнорировать неизвестные поля (полезно для конфигураций с обратной совместимостью)
     Lenient,
 }
 
 pub fn parse_config(
-    path: &Path,          // Type-enforced: must be a filesystem path
-    format: Format,       // Enum: impossible to pass invalid format
-    strictness: Strictness,  // Named alternatives, not a bare bool
+    path: &Path,          // Гарантировано типом: должен быть путь в файловой системе
+    format: Format,       // Перечисление: невозможно передать невалидный формат
+    strictness: Strictness,  // Именованные альтернативы вместо простого bool
 ) -> Result<Config, ConfigError> {
     todo!()
 }
 ```
 
-**What improved**:
+**Что улучшилось**:
 
-| Aspect | Before | After |
+| Аспект | До | После |
 |--------|--------|-------|
-| Format validation | Runtime string comparison | Compile-time enum |
-| Path type | Raw `&str` (could be anything) | `&Path` (filesystem-specific) |
-| Strictness | Mystery `bool` | Self-documenting enum |
-| Error type | `String` (opaque) | `ConfigError` (structured) |
-| Extensibility | Breaking changes | `#[non_exhaustive]` |
+| Валидация формата | Сравнение строк во время выполнения | Перечисление (enum) на этапе компиляции |
+| Тип пути | Простой `&str` (может быть чем угодно) | `&Path` (специфичный для файловой системы) |
+| Строгость | Непонятный `bool` | Самодокументируемое перечисление |
+| Тип ошибки | `String` (непрозрачный) | `ConfigError` (структурированный) |
+| Расширяемость | Критические изменения (breaking changes) | Использование `#[non_exhaustive]` |
 
-> **Rule of thumb**: If you find yourself writing a `match` on string values,
-> consider replacing the parameter with an enum. If a parameter is a boolean
-> that isn't obvious from context, use a two-variant enum instead.
+> **Практическое правило**: Если вы ловите себя на написании `match` по строковым значениям,
+> подумайте о замене параметра на перечисление (enum). Если параметр представляет собой логическое значение (boolean),
+> смысл которого не очевиден из контекста, используйте вместо него enum с двумя вариантами.
 
 ***
 
-### Parse Don't Validate — `TryFrom` and Validated Types
+### Парсите, а не валидируйте — `TryFrom` и валидированные типы
 
-"Parse, don't validate" is a principle that says: **don't check data and then pass
-around the raw unchecked form — instead, parse it into a type that can only exist
-if the data is valid.** Rust's `TryFrom` trait is the standard tool for this.
+Принцип «парсите, а не валидируйте» (Parse, don't validate) гласит: **не проверяйте данные с тем, чтобы затем передавать их сырую непроверенную форму — вместо этого преобразуйте (спарсите) их в тип, который может существовать только в том случае, если данные валидны.** Стандартным инструментом для этого в Rust является типаж `TryFrom`.
 
-#### The Problem: Validation Without Enforcement
+#### Проблема: валидация без принуждения к соблюдению правил
 
 ```rust
-// ❌ Validate-then-use: nothing prevents using an invalid value after the check
+// ❌ Сначала проверяем, потом используем: ничто не мешает использовать невалидное значение после проверки
 fn process_port(port: u16) {
     if port == 0 || port > 65535 {
-        panic!("Invalid port");           // We checked, but...
+        panic!("Invalid port");           // Мы проверили, но...
     }
-    start_server(port);                    // What if someone calls start_server(0) directly?
+    start_server(port);                    // Что если кто-то вызовет start_server(0) напрямую?
 }
 
-// ❌ Stringly-typed: an email is just a String — any garbage gets through
+// ❌ Строковая типизация (stringly-typed): электронная почта — это просто String, любой мусор пройдет
 fn send_email(to: String, body: String) {
-    // Is `to` actually a valid email? We don't know.
-    // Someone could pass "not-an-email" and we only find out at the SMTP server.
+    // Является ли `to` действительно валидным email? Мы не знаем.
+    // Кто-то может передать "not-an-email", и мы узнаем об этом только при отправке на SMTP-сервер.
 }
 ```
 
-#### The Solution: Parse Into Validated Newtypes with `TryFrom`
+#### Решение: парсинг в валидированные новые типы (newtypes) с помощью `TryFrom`
 
 ```rust
 use std::convert::TryFrom;
 use std::fmt;
 
-/// A validated TCP port number (1–65535).
-/// If you have a `Port`, it is guaranteed valid.
+/// Валидированный номер TCP-порта (1–65535).
+/// Если у вас есть `Port`, он гарантированно валиден.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Port(u16);
 
@@ -382,35 +369,35 @@ pub enum PortError {
 impl fmt::Display for PortError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            PortError::Zero => write!(f, "port must be non-zero"),
-            PortError::InvalidFormat => write!(f, "invalid port format"),
+            PortError::Zero => write!(f, "порт не должен быть равен нулю"),
+            PortError::InvalidFormat => write!(f, "неверный формат порта"),
         }
     }
 }
 
 impl std::error::Error for PortError {}
 
-// Now the type system enforces validity:
+// Теперь валидность гарантируется системой типов:
 fn start_server(port: Port) {
-    // No validation needed — Port can only be constructed via TryFrom,
-    // which already verified it's valid.
+    // Валидация не требуется — Port может быть сконструирован только через TryFrom,
+    // который уже проверил его корректность.
     println!("Listening on port {}", port.get());
 }
 
-// Usage:
+// Использование:
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let port = Port::try_from(8080)?;   // ✅ Validated once at the boundary
-    start_server(port);                  // No re-validation anywhere downstream
+    let port = Port::try_from(8080)?;   // ✅ Валидировано один раз на границе системы
+    start_server(port);                  // Никакой повторной валидации далее по коду
 
     let bad = Port::try_from(0);         // ❌ Err(PortError::Zero)
     Ok(())
 }
 ```
 
-#### Real-World Example: Validated IPMI Address
+#### Реальный пример: валидированный IPMI-адрес
 
 ```rust
-/// A validated IPMI slave address (0x20–0xFE, even only).
+/// Валидированный подчиненный (slave) IPMI-адрес (0x20–0xFE, только четные).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct IpmiAddr(u8);
 
@@ -423,9 +410,9 @@ pub enum IpmiAddrError {
 impl fmt::Display for IpmiAddrError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            IpmiAddrError::Odd(v) => write!(f, "IPMI address 0x{v:02X} must be even"),
+            IpmiAddrError::Odd(v) => write!(f, "IPMI-адрес 0x{v:02X} должен быть четным"),
             IpmiAddrError::OutOfRange(v) => {
-                write!(f, "IPMI address 0x{v:02X} out of range (0x20..=0xFE)")
+                write!(f, "IPMI-адрес 0x{v:02X} вне диапазона (0x20..=0xFE)")
             }
         }
     }
@@ -449,16 +436,16 @@ impl IpmiAddr {
     pub fn get(&self) -> u8 { self.0 }
 }
 
-// Downstream code never needs to re-check:
+// Нижележащему коду больше никогда не нужно делать повторную проверку:
 fn send_ipmi_command(addr: IpmiAddr, cmd: u8, data: &[u8]) -> Result<Vec<u8>, IpmiError> {
-    // addr.get() is guaranteed to be a valid, even IPMI address
+    // Гарантируется, что addr.get() является валидным четным IPMI-адресом
     raw_ipmi_send(addr.get(), cmd, data)
 }
 ```
 
-#### Parsing Strings with `FromStr`
+#### Парсинг строк с помощью `FromStr`
 
-For types that are commonly parsed from text (CLI args, config files), implement `FromStr`:
+Для типов, которые часто парсятся из текста (аргументы командной строки, конфигурационные файлы), реализуйте `FromStr`:
 
 ```rust
 use std::str::FromStr;
@@ -472,22 +459,22 @@ impl FromStr for Port {
     }
 }
 
-// Now works with .parse():
-let port: Port = "8080".parse()?;   // Validates in one step
+// Теперь работает с .parse():
+let port: Port = "8080".parse()?;   // Валидация выполняется в один шаг
 
-// And with clap CLI parsing:
+// И с парсингом CLI-аргументов в clap:
 // #[derive(Parser)]
 // struct Args {
 //     #[arg(short, long)]
-//     port: Port,   // clap calls FromStr automatically
+//     port: Port,   // clap автоматически вызывает FromStr
 // }
 ```
 
-#### `TryFrom` Chain for Complex Validation
+#### Цепочка `TryFrom` для сложной валидации
 
 ```rust
-// Stub types for this example — in production these would be in
-// separate modules with their own TryFrom implementations.
+// Заглушки типов для этого примера — в реальном проекте они находились бы
+// в отдельных модулях со своими собственными реализациями TryFrom.
 ```
 
 ```rust
@@ -500,7 +487,7 @@ let port: Port = "8080".parse()?;   // Validates in one step
 # impl TryFrom<u64> for Timeout {
 #     type Error = String;
 #     fn try_from(ms: u64) -> Result<Self, String> {
-#         if ms == 0 { Err("timeout must be > 0".into()) } else { Ok(Timeout(ms)) }
+#         if ms == 0 { Err("таймаут должен быть > 0".into()) } else { Ok(Timeout(ms)) }
 #     }
 # }
 # struct RawConfig { host: String, port: u16, timeout_ms: u64 }
@@ -516,7 +503,7 @@ let port: Port = "8080".parse()?;   // Validates in one step
 # impl From<serde_json::Error> for ConfigError {
 #     fn from(e: serde_json::Error) -> Self { ConfigError::InvalidHost(e.to_string()) }
 # }
-/// A validated configuration that can only exist if all fields are valid.
+/// Валидированная конфигурация, которая может существовать только при условии валидности всех полей.
 pub struct ValidConfig {
     pub host: Hostname,
     pub port: Port,
@@ -538,34 +525,34 @@ impl TryFrom<RawConfig> for ValidConfig {
     }
 }
 
-// Parse once at the boundary, use the validated type everywhere:
+// Парсим один раз на границе, используем валидированный тип везде внутри:
 fn load_config(path: &str) -> Result<ValidConfig, ConfigError> {
     let raw: RawConfig = serde_json::from_str(&std::fs::read_to_string(path)?)?;
-    ValidConfig::try_from(raw)  // All validation happens here
+    ValidConfig::try_from(raw)  // Вся валидация происходит здесь
 }
 ```
 
-#### Summary: Validate vs Parse
+#### Резюме: Валидация против Парсинга
 
-| Approach | Data checked? | Compiler enforces validity? | Re-validation needed? |
+| Подход | Данные проверяются? | Компилятор гарантирует валидность? | Нужна повторная валидация? |
 |----------|:---:|:---:|:---:|
-| Runtime checks (if/assert) | ✅ | ❌ | Every function boundary |
-| Validated newtype + `TryFrom` | ✅ | ✅ | Never — type is proof |
+| Проверки рантайма (if/assert) | ✅ | ❌ | На границе каждой функции |
+| Валидированный newtype + `TryFrom` | ✅ | ✅ | Никогда — тип служит доказательством |
 
-The rule: **parse at the boundary, use validated types everywhere inside.**
-Raw strings, integers, and byte slices enter your system, get parsed into
-validated types via `TryFrom`/`FromStr`, and from that point forward the type
-system guarantees they're valid.
+Правило: **парсите на границе системы, используйте валидированные типы повсюду внутри.**
+Сырые строки, целые числа и срезы байтов поступают в вашу систему, преобразуются в
+валидированные типы через `TryFrom`/`FromStr`, и с этого момента система типов
+гарантирует их корректность.
 
-### Feature Flags and Conditional Compilation
+### Feature-флаги и условная компиляция
 
 ```toml
 # Cargo.toml
 [features]
-default = ["json"]          # Enabled by default
-json = ["dep:serde_json"]   # Enables JSON support
-xml = ["dep:quick-xml"]     # Enables XML support
-full = ["json", "xml"]      # Meta-feature: enables all
+default = ["json"]          # Включено по умолчанию
+json = ["dep:serde_json"]   # Включает поддержку JSON
+xml = ["dep:quick-xml"]     # Включает поддержку XML
+full = ["json", "xml"]      # Мета-фича: включает всё
 
 [dependencies]
 serde = "1"
@@ -574,7 +561,7 @@ quick-xml = { version = "0.31", optional = true }
 ```
 
 ```rust
-// Conditional compilation based on features:
+// Условная компиляция на основе фич:
 #[cfg(feature = "json")]
 pub fn to_json<T: serde::Serialize>(value: &T) -> String {
     serde_json::to_string(value).unwrap()
@@ -585,103 +572,101 @@ pub fn to_xml<T: serde::Serialize>(value: &T) -> String {
     quick_xml::se::to_string(value).unwrap()
 }
 
-// Compile error if a required feature isn't enabled:
+// Ошибка компиляции, если ни одна из требуемых фич не включена:
 #[cfg(not(any(feature = "json", feature = "xml")))]
-compile_error!("At least one format feature (json, xml) must be enabled");
+compile_error!("Должна быть включена хотя бы одна фича формата (json, xml)");
 ```
 
-**Best practices**:
-- Keep `default` features minimal — users can opt in
-- Use `dep:` syntax (Rust 1.60+) for optional dependencies to avoid creating implicit features
-- Document features in your README and crate-level docs
+**Лучшие практики**:
+- Минимизируйте количество фич по умолчанию (`default`) — пользователи должны иметь возможность выбирать их явно
+- Используйте синтаксис `dep:` (Rust 1.60+) для опциональных зависимостей, чтобы избежать создания неявных фич
+- Документируйте фичи в файле README и в документации на уровне крейта
 
-### Workspace Organization
+### Организация рабочего пространства (Workspace)
 
-For large projects, use a Cargo workspace to share dependencies and build artifacts:
+Для больших проектов используйте рабочее пространство (workspace) Cargo для совместного использования зависимостей и артефактов сборки:
 
 ```toml
-# Root Cargo.toml
+# Корневой Cargo.toml
 [workspace]
 members = [
-    "core",         # Shared types and traits
-    "parser",       # Parsing library
-    "server",       # Binary — the main application
-    "client",       # Client library
-    "cli",          # CLI binary
+    "core",         # Общие типы и типажи
+    "parser",       # Библиотека парсинга
+    "server",       # Бинарный файл — основное приложение
+    "client",       # Клиентская библиотека
+    "cli",          # CLI-инструмент (бинарный файл)
 ]
 
-# Shared dependency versions:
+# Общие версии зависимостей:
 [workspace.dependencies]
 serde = { version = "1", features = ["derive"] }
 tokio = { version = "1", features = ["full"] }
 tracing = "0.1"
 
-# In each member's Cargo.toml:
+# В Cargo.toml каждого участника (member):
 # [dependencies]
 # serde = { workspace = true }
 ```
 
-**Benefits**:
+**Преимущества**:
 
-- Single `Cargo.lock` — all crates use the same dependency versions
-- `cargo test --workspace` runs all tests
-- Shared build cache — compiling one crate benefits all
-- Clean dependency boundaries between components
+- Единый файл `Cargo.lock` — все крейты используют одинаковые версии зависимостей
+- Команда `cargo test --workspace` запускает все тесты
+- Общий кэш сборки — компиляция одного крейта ускоряет сборку других
+- Четкие границы зависимостей между компонентами
 
-### `.cargo/config.toml`: Project-Level Configuration
+### `.cargo/config.toml`: Конфигурация на уровне проекта
 
-The `.cargo/config.toml` file (at the workspace root or in `$HOME/.cargo/`)
-customizes Cargo behavior without modifying `Cargo.toml`:
+Файл `.cargo/config.toml` (в корне рабочего пространства или в `$HOME/.cargo/`) настраивает поведение Cargo без изменения самого `Cargo.toml`:
 
 ```toml
 # .cargo/config.toml
 
-# Default target for this workspace
+# Целевая платформа (target) по умолчанию для этого рабочего пространства
 [build]
 target = "x86_64-unknown-linux-gnu"
 
-# Custom runner — e.g., run via QEMU for cross-compiled binaries
+# Кастомный запуск — например, запуск через QEMU для кросс-компилированных бинарников
 [target.aarch64-unknown-linux-gnu]
 runner = "qemu-aarch64-static"
 linker = "aarch64-linux-gnu-gcc"
 
-# Cargo aliases — custom shortcut commands
+# Алиасы (псевдонимы) Cargo — кастомные сокращения команд
 [alias]
-xt = "test --workspace --release"        # cargo xt = run all tests in release
-ci = "clippy --workspace -- -D warnings" # cargo ci = lint with errors on warnings
-cov = "llvm-cov --workspace"             # cargo cov = coverage (requires cargo-llvm-cov)
+xt = "test --workspace --release"        # cargo xt = запустить все тесты в release-режиме
+ci = "clippy --workspace -- -D warnings" # cargo ci = запустить clippy и считать предупреждения ошибками
+cov = "llvm-cov --workspace"             # cargo cov = расчет покрытия кода (требуется cargo-llvm-cov)
 
-# Environment variables for build scripts
+# Переменные окружения для скриптов сборки (build.rs)
 [env]
 IPMI_LIB_PATH = "/usr/lib/bmc"
 
-# Use a custom registry (for internal packages)
+# Использование кастомного реестра (для внутренних пакетов)
 # [registries.internal]
 # index = "https://gitlab.internal/crates/index"
 ```
 
-Common configuration patterns:
+Распространенные паттерны конфигурации:
 
-| Setting | Purpose | Example |
+| Настройка | Назначение | Пример |
 |---------|---------|---------|
-| `[build] target` | Default compilation target | `x86_64-unknown-linux-musl` for static builds |
-| `[target.X] runner` | How to run the binary | `"qemu-aarch64-static"` for cross-compiled |
-| `[target.X] linker` | Which linker to use | `"aarch64-linux-gnu-gcc"` |
-| `[alias]` | Custom `cargo` subcommands | `xt = "test --workspace"` |
-| `[env]` | Build-time environment variables | Library paths, feature toggles |
-| `[net] offline` | Prevent network access | `true` for air-gapped builds |
+| `[build] target` | Целевая платформа по умолчанию | `x86_64-unknown-linux-musl` для статических сборок |
+| `[target.X] runner` | Как запускать бинарный файл | `"qemu-aarch64-static"` для кросс-компиляции |
+| `[target.X] linker` | Какой компоновщик использовать | `"aarch64-linux-gnu-gcc"` |
+| `[alias]` | Пользовательские подкоманды `cargo` | `xt = "test --workspace"` |
+| `[env]` | Переменные окружения во время сборки | Пути к библиотекам, переключатели фич |
+| `[net] offline` | Запретить доступ к сети | `true` для изолированных (air-gapped) сборок |
 
-### Compile-Time Environment Variables: `env!()` and `option_env!()`
+### Переменные окружения на этапе компиляции: `env!()` и `option_env!()`
 
-Rust can embed environment variables into the binary at compile time — useful for
-version strings, build metadata, and configuration:
+Rust позволяет внедрять переменные окружения в бинарный файл на этапе компиляции. Это полезно для хранения строк версий, метаданных сборки и конфигурации:
 
 ```rust
-// env!() — panics at compile time if the variable is missing
-const VERSION: &str = env!("CARGO_PKG_VERSION"); // "0.1.0" from Cargo.toml
-const PKG_NAME: &str = env!("CARGO_PKG_NAME");   // Crate name from Cargo.toml
+// env!() — вызывает панику на этапе компиляции, если переменная отсутствует
+const VERSION: &str = env!("CARGO_PKG_VERSION"); // "0.1.0" из Cargo.toml
+const PKG_NAME: &str = env!("CARGO_PKG_NAME");   // имя крейта из Cargo.toml
 
-// option_env!() — returns Option<&str>, doesn't panic if missing
+// option_env!() — возвращает Option<&str>, не паникует при отсутствии переменной
 const BUILD_SHA: Option<&str> = option_env!("GIT_SHA");
 const BUILD_TIME: Option<&str> = option_env!("BUILD_TIMESTAMP");
 
@@ -696,18 +681,18 @@ fn print_version() {
 }
 ```
 
-Cargo automatically sets many useful environment variables:
+Cargo автоматически устанавливает множество полезных переменных окружения:
 
-| Variable | Value | Use case |
+| Переменная | Значение | Сценарий использования |
 |----------|-------|----------|
-| `CARGO_PKG_VERSION` | `"1.2.3"` | Version reporting |
-| `CARGO_PKG_NAME` | `"diag_tool"` | Binary identification |
-| `CARGO_PKG_AUTHORS` | From `Cargo.toml` | About/help text |
-| `CARGO_MANIFEST_DIR` | Absolute path to `Cargo.toml` | Locating test data files |
-| `OUT_DIR` | Build output directory | `build.rs` code generation target |
-| `TARGET` | Target triple | Platform-specific logic in `build.rs` |
+| `CARGO_PKG_VERSION` | `"1.2.3"` | Вывод версии |
+| `CARGO_PKG_NAME` | `"diag_tool"` | Идентификация бинарного файла |
+| `CARGO_PKG_AUTHORS` | Из `Cargo.toml` | Текст раздела "О программе" или справки |
+| `CARGO_MANIFEST_DIR` | Абсолютный путь к `Cargo.toml` | Поиск файлов с тестовыми данными |
+| `OUT_DIR` | Выходной каталог сборки | Целевой каталог генерации кода в `build.rs` |
+| `TARGET` | Тройка целевой платформы (target triple) | Платформозависимая логика в `build.rs` |
 
-You can set custom env vars from `build.rs`:
+Вы можете устанавливать собственные переменные окружения из `build.rs`:
 ```rust
 // build.rs
 fn main() {
@@ -716,13 +701,12 @@ fn main() {
 }
 ```
 
-### `cfg_attr`: Conditional Attributes
+### `cfg_attr`: Условные атрибуты
 
-`cfg_attr` applies an attribute **only when** a condition is true. This is more
-targeted than `#[cfg()]`, which includes/excludes entire items:
+`cfg_attr` применяет атрибут **только тогда**, когда условие истинно. Это более точечный инструмент по сравнению с `#[cfg()]`, который включает или исключает элементы целиком:
 
 ```rust
-// Derive Serialize only when the "serde" feature is enabled:
+// Выполняем автодеревацию (derive) Serialize только при включенной фиче "serde":
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone)]
 pub struct DiagResult {
@@ -730,77 +714,77 @@ pub struct DiagResult {
     pub passed: bool,
     pub message: String,
 }
-// Without "serde" feature: no serde dependency needed at all
-// With "serde" feature: DiagResult is serializable
+// Без фичи "serde": зависимость от serde вообще не требуется
+// С фичей "serde": DiagResult поддерживает сериализацию
 
-// Conditional attribute for testing:
-#[cfg_attr(test, derive(PartialEq))]  // Only derive PartialEq in test builds
+// Условный атрибут для тестирования:
+#[cfg_attr(test, derive(PartialEq))]  // Выводить PartialEq только для тестовых сборок
 pub struct LargeStruct { /* ... */ }
 
-// Platform-specific function attributes:
+// Платформозависимые атрибуты функций:
 #[cfg_attr(target_os = "linux", link_name = "ioctl")]
 #[cfg_attr(target_os = "freebsd", link_name = "__ioctl")]
 extern "C" fn platform_ioctl(fd: i32, request: u64) -> i32;
 ```
 
-| Pattern | What it does |
+| Шаблон | Что делает |
 |---------|-------------|
-| `#[cfg(feature = "x")]` | Include/exclude the entire item |
-| `#[cfg_attr(feature = "x", derive(Foo))]` | Add `derive(Foo)` only when feature "x" is on |
-| `#[cfg_attr(test, allow(unused))]` | Suppress warnings only in test builds |
-| `#[cfg_attr(doc, doc = "...")]` | Documentation visible only in `cargo doc` |
+| `#[cfg(feature = "x")]` | Включает/исключает элемент целиком |
+| `#[cfg_attr(feature = "x", derive(Foo))]` | Добавляет `derive(Foo)` только при включенной фиче "x" |
+| `#[cfg_attr(test, allow(unused))]` | Подавляет предупреждения только в тестовых сборках |
+| `#[cfg_attr(doc, doc = "...")]` | Документация видна только при сборке через `cargo doc` |
 
-### `cargo deny` and `cargo audit`: Supply-Chain Security
+### `cargo deny` и `cargo audit`: безопасность цепочки поставок
 
 ```bash
-# Install security audit tools
+# Установка инструментов аудита безопасности
 cargo install cargo-deny
 cargo install cargo-audit
 
-# Check for known vulnerabilities in dependencies
+# Проверка зависимостей на наличие известных уязвимостей
 cargo audit
 
-# Comprehensive checks: licenses, bans, advisories, sources
+# Комплексные проверки: лицензии, запреты, рекомендации, источники
 cargo deny check
 ```
 
-Configure `cargo deny` with a `deny.toml` at the workspace root:
+Настройте `cargo deny` с помощью файла `deny.toml` в корне рабочего пространства:
 
 ```toml
 # deny.toml
 [advisories]
-vulnerability = "deny"      # Fail on known vulnerabilities
-unmaintained = "warn"        # Warn on unmaintained crates
+vulnerability = "deny"      # Завершать сборку ошибкой при известных уязвимостях
+unmaintained = "warn"        # Предупреждать о заброшенных (unmaintained) крейтах
 
 [licenses]
 allow = ["MIT", "Apache-2.0", "BSD-2-Clause", "BSD-3-Clause"]
-deny = ["GPL-3.0"]          # Reject copyleft licenses
+deny = ["GPL-3.0"]          # Отклонять копилефт-лицензии
 
 [bans]
-multiple-versions = "warn"  # Warn if multiple versions of same crate
+multiple-versions = "warn"  # Предупреждать, если используется несколько версий одного крейта
 deny = [
-    { name = "openssl" },   # Force use of rustls instead
+    { name = "openssl" },   # Принудительно использовать rustls вместо openssl
 ]
 
 [sources]
-allow-git = []              # No git dependencies in production
+allow-git = []              # Запретить git-зависимости в продакшене
 ```
 
-| Tool | Purpose | When to run |
+| Инструмент | Назначение | Когда запускать |
 |------|---------|-------------|
-| `cargo audit` | Check for known CVEs in dependencies | CI pipeline, pre-release |
-| `cargo deny check` | Licenses, bans, advisories, sources | CI pipeline |
-| `cargo deny check licenses` | License compliance only | Before open-sourcing |
-| `cargo deny check bans` | Prevent specific crates | Enforce architecture decisions |
+| `cargo audit` | Проверка известных CVE в зависимостях | В CI-пайплайне, перед релизом |
+| `cargo deny check` | Лицензии, запреты, рекомендации, источники | В CI-пайплайне |
+| `cargo deny check licenses` | Только проверка соответствия лицензий | Перед открытием исходного кода |
+| `cargo deny check bans` | Запрет определенных крейтов | Для контроля архитектурных решений |
 
-### Doc Tests: Tests Inside Documentation
+### Тесты в документации (Doc-тесты)
 
-Rust doc comments (`///`) can contain code blocks that are **compiled and run as tests**:
+Комментарии документации в Rust (`///`) могут содержать блоки кода, которые **компилируются и запускаются в качестве тестов**:
 
 ```rust
-/// Parses a diagnostic fault code from a string.
+/// Парсит код диагностической ошибки (fault code) из строки.
 ///
-/// # Examples
+/// # Примеры
 ///
 /// ```
 /// use my_crate::parse_fc;
@@ -809,7 +793,7 @@ Rust doc comments (`///`) can contain code blocks that are **compiled and run as
 /// assert_eq!(fc, 12345);
 /// ```
 ///
-/// Invalid input returns an error:
+/// Некорректный ввод возвращает ошибку:
 ///
 /// ```
 /// use my_crate::parse_fc;
@@ -825,20 +809,20 @@ pub fn parse_fc(input: &str) -> Result<u32, ParseError> {
 ```
 
 ```bash
-cargo test --doc  # Run only doc tests
-cargo test        # Runs unit + integration + doc tests
+cargo test --doc  # Запуск только тестов документации
+cargo test        # Запуск юнит-тестов + интеграционных тестов + doc-тестов
 ```
 
-**Module-level documentation** uses `//!` at the top of a file:
+Документация на уровне модуля использует синтаксис `//!` в самом начале файла:
 
 ```rust
-//! # Diagnostic Framework
+//! # Диагностический фреймворк (Diagnostic Framework)
 //!
-//! This crate provides the core diagnostic execution engine.
-//! It supports running diagnostic tests, collecting results,
-//! and reporting to the BMC via IPMI.
+//! Этот крейт предоставляет основное ядро выполнения диагностики.
+//! Он поддерживает запуск диагностических тестов, сбор результатов
+//! и отправку отчетов в BMC через IPMI.
 //!
-//! ## Quick Start
+//! ## Быстрый старт
 //!
 //! ```no_run
 //! use diag_framework::Framework;
@@ -848,46 +832,41 @@ cargo test        # Runs unit + integration + doc tests
 //! ```
 ```
 
-### Benchmarking with Criterion
+### Бенчмаркинг с использованием Criterion
 
-> **Full coverage**: See the [Benchmarking with criterion](ch14-testing-and-benchmarking-patterns.md#benchmarking-with-criterion)
-> section in Chapter 13 (Testing and Benchmarking Patterns) for complete
-> `criterion` setup, API examples, and a comparison table vs `cargo bench`.
-> Below is a quick-reference for architecture-specific usage.
+> **Полное руководство**: Подробную информацию о настройке `criterion`, примерах API и сравнительную таблицу по отношению к `cargo bench` см. в разделе [Бенчмаркинг с использованием criterion](ch14-testing-and-benchmarking-patterns.md#benchmarking-with-criterion) главы 13 («Шаблоны тестирования и бенчмаркинга»). Ниже приведена краткая справка по специфике использования в архитектуре.
 
-When benchmarking your crate's public API, place benchmarks in `benches/` and
-keep them focused on the hot path — typically parsers, serializers, or
-validation boundaries:
+При профилировании публичного API вашего крейта размещайте бенчмарки в каталоге `benches/` и концентрируйте их на критических путях («горячих точках») — обычно это парсеры, сериализаторы или границы валидации:
 
 ```bash
-cargo bench                  # Run all benchmarks
-cargo bench -- parse_config  # Run specific benchmark
-# Results in target/criterion/ with HTML reports
+cargo bench                  # Запустить все бенчмарки
+cargo bench -- parse_config  # Запустить конкретный бенчмарк
+# Результаты сохраняются в target/criterion/ с отчетами в формате HTML
 ```
 
-> **Key Takeaways — Architecture & API Design**
-> - Accept the most general type (`impl Into`, `impl AsRef`, `Cow`); return the most specific
-> - Parse Don't Validate: use `TryFrom` to create types that are valid by construction
-> - `#[non_exhaustive]` on public enums prevents breaking changes when adding variants
-> - `#[must_use]` catches silent discards of important values
+> **Основные выводы — архитектура и проектирование API**
+> - Принимайте наиболее общий тип (`impl Into`, `impl AsRef`, `Cow`); возвращайте наиболее специфичный
+> - Принцип «парсите, а не валидируйте» (Parse Don't Validate): используйте `TryFrom` для создания типов, корректных по самой своей конструкции
+> - `#[non_exhaustive]` для публичных перечислений предотвращает критические изменения при добавлении новых вариантов
+> - `#[must_use]` уберегает от случайного игнорирования важных возвращаемых значений
 
-> **See also:** [Ch 9 — Error Handling](ch10-error-handling-patterns.md) for error type design in public APIs. [Ch 13 — Testing](ch14-testing-and-benchmarking-patterns.md) for testing your crate's public API.
+> **См. также:** раздел [Глава 9 — Обработка ошибок](ch10-error-handling-patterns.md) для проектирования типов ошибок в публичных API; [Глава 13 — Тестирование](ch14-testing-and-benchmarking-patterns.md) для тестирования публичного API вашего крейта.
 
 ---
 
-### Exercise: Crate API Refactoring ★★ (~30 min)
+### Упражнение: рефакторинг API крейта ★★ (~30 мин)
 
-Refactor the following "stringly-typed" API into one that uses `TryFrom`, newtypes, and builder pattern:
+Выполните рефакторинг следующего API со «строковой типизацией» в версию, использующую `TryFrom`, новые типы (newtypes) и паттерн «строитель»:
 
 ```rust,ignore
-// BEFORE: Easy to misuse
+// ДО: легко ошибиться при использовании
 fn create_server(host: &str, port: &str, max_conn: &str) -> Server { ... }
 ```
 
-Design a `ServerConfig` with validated types `Host`, `Port` (1–65535), and `MaxConnections` (1–10000) that reject invalid values at parse time.
+Спроектируйте `ServerConfig` с валидированными типами `Host`, `Port` (1–65535) и `MaxConnections` (1–10000), которые отклоняют некорректные значения на этапе парсинга.
 
 <details>
-<summary>🔑 Solution</summary>
+<summary>🔑 Решение</summary>
 
 ```rust
 #[derive(Debug, Clone)]
@@ -896,8 +875,8 @@ struct Host(String);
 impl TryFrom<&str> for Host {
     type Error = String;
     fn try_from(s: &str) -> Result<Self, String> {
-        if s.is_empty() { return Err("host cannot be empty".into()); }
-        if s.contains(' ') { return Err("host cannot contain spaces".into()); }
+        if s.is_empty() { return Err("хост не может быть пустым".into()); }
+        if s.contains(' ') { return Err("хост не может содержать пробелы".into()); }
         Ok(Host(s.to_string()))
     }
 }
@@ -908,7 +887,7 @@ struct Port(u16);
 impl TryFrom<u16> for Port {
     type Error = String;
     fn try_from(p: u16) -> Result<Self, String> {
-        if p == 0 { return Err("port must be >= 1".into()); }
+        if p == 0 { return Err("порт должен быть >= 1".into()); }
         Ok(Port(p))
     }
 }
@@ -920,7 +899,7 @@ impl TryFrom<u32> for MaxConnections {
     type Error = String;
     fn try_from(n: u32) -> Result<Self, String> {
         if n == 0 || n > 10_000 {
-            return Err(format!("max_connections must be 1–10000, got {n}"));
+            return Err(format!("max_connections должно быть в диапазоне 1–10000, получено {n}"));
         }
         Ok(MaxConnections(n))
     }
@@ -947,7 +926,7 @@ fn main() {
     );
     println!("{config:?}");
 
-    // Invalid values caught at parse time:
+    // Невалидные значения отлавливаются на этапе парсинга:
     assert!(Host::try_from("").is_err());
     assert!(Port::try_from(0).is_err());
     assert!(MaxConnections::try_from(99999).is_err());
@@ -957,4 +936,3 @@ fn main() {
 </details>
 
 ***
-

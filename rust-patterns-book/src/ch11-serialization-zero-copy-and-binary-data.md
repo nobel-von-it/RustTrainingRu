@@ -1,15 +1,15 @@
-# 11. Serialization, Zero-Copy, and Binary Data 🟡
+# 11. Сериализация, Zero-Copy и бинарные данные 🟡
 
-> **What you'll learn:**
-> - serde fundamentals: derive macros, attributes, and enum representations
-> - Zero-copy deserialization for high-performance read-heavy workloads
-> - The serde format ecosystem (JSON, TOML, bincode, MessagePack)
-> - Binary data handling with `repr(C)`, zerocopy, and `bytes::Bytes`
+> **Чему вы научитесь:**
+> - Основы serde: макросы derive, атрибуты и способы представления перечислений
+> - Десериализация без копирования (Zero-copy deserialization) для высокопроизводительных задач с преобладанием чтения
+> - Экосистема форматов serde (JSON, TOML, bincode, MessagePack)
+> - Работа с бинарными данными с помощью `repr(C)`, zerocopy и `bytes::Bytes`
 
-## serde Fundamentals
+## Основы serde
 
-`serde` (SERialize/DEserialize) is the universal serialization framework for Rust.
-It separates **data model** (your structs) from **format** (JSON, TOML, binary):
+`serde` (SERialize/DEserialize) — это универсальный фреймворк сериализации для Rust.
+Он разделяет **модель данных** (ваши структуры) и **формат** (JSON, TOML, бинарный формат):
 
 ```rust,ignore
 use serde::{Serialize, Deserialize};
@@ -18,14 +18,14 @@ use serde::{Serialize, Deserialize};
 struct ServerConfig {
     name: String,
     port: u16,
-    #[serde(default)]                    // Use Default::default() if missing
+    #[serde(default)]                    // Использовать Default::default(), если поле отсутствует
     max_connections: usize,
     #[serde(skip_serializing_if = "Option::is_none")]
     tls_cert_path: Option<String>,
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Deserialize from JSON:
+    // Десериализация из JSON:
     let json_input = r#"{
         "name": "hw-diag",
         "port": 8080
@@ -34,11 +34,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("{config:?}");
     // ServerConfig { name: "hw-diag", port: 8080, max_connections: 0, tls_cert_path: None }
 
-    // Serialize to JSON:
+    // Сериализация в JSON:
     let output = serde_json::to_string_pretty(&config)?;
     println!("{output}");
 
-    // Same struct, different format — no code changes:
+    // Та же структура, другой формат — без изменений кода:
     let toml_input = r#"
         name = "hw-diag"
         port = 8080
@@ -50,49 +50,49 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
-> **Key insight**: Your struct derives `Serialize` and `Deserialize` once.
-> Then it works with *every* serde-compatible format — JSON, TOML, YAML,
-> bincode, MessagePack, CBOR, postcard, and dozens more.
+> **Важное понимание**: Вы один раз реализуете (через derive) типажи `Serialize` и `Deserialize` для вашей структуры.
+> После этого она работает со *всеми* совместимыми с serde форматами — JSON, TOML, YAML,
+> bincode, MessagePack, CBOR, postcard и десятками других.
 
-### Common serde Attributes
+### Общие атрибуты serde
 
-serde provides fine-grained control over serialization through field and container attributes:
+serde предоставляет тонкий контроль над сериализацией с помощью атрибутов полей и контейнеров:
 
 ```rust,ignore
 use serde::{Serialize, Deserialize};
 
-// --- Container attributes (on the struct/enum) ---
+// --- Атрибуты контейнера (для структуры/перечисления) ---
 #[derive(Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]       // JSON convention: field_name → fieldName
-#[serde(deny_unknown_fields)]            // Reject extra keys — strict parsing
+#[serde(rename_all = "camelCase")]       // Соглашение JSON: field_name → fieldName
+#[serde(deny_unknown_fields)]            // Отклонять лишние ключи — строгий парсинг
 struct DiagResult {
-    test_name: String,                   // Serialized as "testName"
-    pass_count: u32,                     // Serialized as "passCount"
-    fail_count: u32,                     // Serialized as "failCount"
+    test_name: String,                   // Сериализуется как "testName"
+    pass_count: u32,                     // Сериализуется как "passCount"
+    fail_count: u32,                     // Сериализуется как "failCount"
 }
 
-// --- Field attributes ---
+// --- Атрибуты полей ---
 #[derive(Serialize, Deserialize)]
 struct Sensor {
-    #[serde(rename = "sensor_id")]       // Override field name for serialization
+    #[serde(rename = "sensor_id")]       // Переопределить имя поля при сериализации
     id: u64,
 
-    #[serde(default)]                    // Use Default if missing from input
+    #[serde(default)]                    // Использовать Default, если отсутствует на входе
     enabled: bool,
 
     #[serde(default = "default_threshold")]
     threshold: f64,
 
-    #[serde(skip)]                       // Never serialize or deserialize
+    #[serde(skip)]                       // Никогда не сериализовать и не десериализовать
     cached_value: Option<f64>,
 
     #[serde(skip_serializing_if = "Vec::is_empty")]
     tags: Vec<String>,
 
-    #[serde(flatten)]                    // Inline nested struct fields
+    #[serde(flatten)]                    // Встроить (inline) поля вложенной структуры
     metadata: Metadata,
 
-    #[serde(with = "hex_bytes")]         // Custom ser/de module
+    #[serde(with = "hex_bytes")]         // Пользовательский модуль сериализации/десериализации
     raw_data: Vec<u8>,
 }
 
@@ -103,35 +103,35 @@ struct Metadata {
     vendor: String,
     model: String,
 }
-// With #[serde(flatten)], the JSON looks like:
+// С использованием #[serde(flatten)] JSON выглядит так:
 // { "sensor_id": 1, "vendor": "Intel", "model": "X200", ... }
-// NOT: { "sensor_id": 1, "metadata": { "vendor": "Intel", ... } }
+// А НЕ ТАК: { "sensor_id": 1, "metadata": { "vendor": "Intel", ... } }
 ```
 
-**Most-used attributes cheat sheet**:
+**Шпаргалка по наиболее часто используемым атрибутам**:
 
-| Attribute | Level | Effect |
+| Атрибут | Уровень | Эффект |
 |-----------|-------|--------|
-| `rename_all = "camelCase"` | Container | Rename all fields to camelCase/snake_case/SCREAMING_SNAKE_CASE |
-| `deny_unknown_fields` | Container | Error on unexpected keys (strict mode) |
-| `default` | Field | Use `Default::default()` when field missing |
-| `rename = "..."` | Field | Custom serialized name |
-| `skip` | Field | Exclude from ser/de entirely |
-| `skip_serializing_if = "fn"` | Field | Conditionally exclude (e.g., `Option::is_none`) |
-| `flatten` | Field | Inline a nested struct's fields |
-| `with = "module"` | Field | Use custom serialize/deserialize functions |
-| `alias = "..."` | Field | Accept alternative names during deserialization |
-| `deserialize_with = "fn"` | Field | Custom deserialize function only |
-| `untagged` | Enum | Try each variant in order (no discriminant in output) |
+| `rename_all = "camelCase"` | Контейнер | Переименовать все поля в camelCase/snake_case/SCREAMING_SNAKE_CASE |
+| `deny_unknown_fields` | Контейнер | Выдавать ошибку при наличии неизвестных ключей (строгий режим) |
+| `default` | Поле | Использовать `Default::default()`, если поле отсутствует |
+| `rename = "..."` | Поле | Пользовательское имя для сериализации |
+| `skip` | Поле | Полностью исключить поле из сериализации и десериализации |
+| `skip_serializing_if = "fn"` | Поле | Исключить при выполнении условия (например, `Option::is_none`) |
+| `flatten` | Поле | Встроить (сделать плоскими) поля вложенной структуры |
+| `with = "module"` | Поле | Использовать сторонние функции для сериализации/десериализации |
+| `alias = "..."` | Поле | Принимать альтернативные имена при десериализации |
+| `deserialize_with = "fn"` | Поле | Использовать специальную функцию только для десериализации |
+| `untagged` | Перечисление | Пробовать каждый вариант по очереди (в выводе нет дискриминанта) |
 
-### Enum Representations
+### Способы представления перечислений (Enum Representations)
 
-serde provides four representations for enums in formats like JSON:
+serde предоставляет четыре способа представления перечислений в таких форматах, как JSON:
 
 ```rust,ignore
 use serde::{Serialize, Deserialize};
 
-// 1. Externally tagged (DEFAULT):
+// 1. Внешняя метка (Externally tagged - ПО УМОЛЧАНИЮ):
 #[derive(Serialize, Deserialize)]
 enum Command {
     Reboot,
@@ -141,7 +141,7 @@ enum Command {
 // "Reboot"                                          → Command::Reboot
 // {"RunDiag": {"test_name": "gpu", "timeout_secs": 60}}  → Command::RunDiag { ... }
 
-// 2. Internally tagged — #[serde(tag = "type")]:
+// 2. Внутренняя метка (Internally tagged) — #[serde(tag = "type")]:
 #[derive(Serialize, Deserialize)]
 #[serde(tag = "type")]
 enum Event {
@@ -152,7 +152,7 @@ enum Event {
 // {"type": "Start", "timestamp": 1706000000}
 // {"type": "Error", "code": 42, "message": "timeout"}
 
-// 3. Adjacently tagged — #[serde(tag = "t", content = "c")]:
+// 3. Смежная метка (Adjacently tagged) — #[serde(tag = "t", content = "c")]:
 #[derive(Serialize, Deserialize)]
 #[serde(tag = "t", content = "c")]
 enum Payload {
@@ -162,7 +162,7 @@ enum Payload {
 // {"t": "Text", "c": "hello"}
 // {"t": "Binary", "c": [0, 1, 2]}
 
-// 4. Untagged — #[serde(untagged)]:
+// 4. Без метки (Untagged) — #[serde(untagged)]:
 #[derive(Serialize, Deserialize)]
 #[serde(untagged)]
 enum StringOrNumber {
@@ -171,104 +171,104 @@ enum StringOrNumber {
 }
 // "hello" → StringOrNumber::Str("hello")
 // 42.0    → StringOrNumber::Num(42.0)
-// ⚠️ Tried IN ORDER — first matching variant wins
+// ⚠️ Проверяются ПО ОЧЕРЕДИ — побеждает первый совпавший вариант
 ```
 
-> **Which representation to choose**: Use internally tagged (`tag = "type"`)
-> for most JSON APIs — it's the most readable and matches conventions in
-> Go, Python, and TypeScript. Use untagged only for "union" types where the
-> shape alone disambiguates.
+> **Какое представление выбрать**: Используйте внутреннюю метку (`tag = "type"`)
+> для большинства JSON API — это наиболее читаемый вариант, соответствующий соглашениям в
+> Go, Python и TypeScript. Используйте вариант без метки (`untagged`) только для типов-объединений (union),
+> где сам формат данных однозначно определяет нужный вариант.
 
-### Zero-Copy Deserialization
+### Десериализация без копирования (Zero-Copy Deserialization)
 
-serde can deserialize without allocating new strings — borrowing directly from
-the input buffer. This is the key to high-performance parsing:
+serde умеет проводить десериализацию без выделения памяти под новые строки — заимствуя данные напрямую из
+входного буфера. Это ключ к высокой производительности парсинга:
 
 ```rust,ignore
 use serde::Deserialize;
 
-// --- Owned (allocating) ---
-// Each String field copies bytes from the input into new heap allocations.
+// --- С владением (с выделением памяти) ---
+// Каждое поле String копирует байты из входного буфера в новые области кучи.
 #[derive(Deserialize)]
 struct OwnedRecord {
-    name: String,           // Allocates a new String
-    value: String,          // Allocates another String
+    name: String,           // Выделяет память под новую String
+    value: String,          // Выделяет память под ещё одну String
 }
 
-// --- Zero-copy (borrowing) ---
-// &'de str fields borrow directly from the input — ZERO allocation.
+// --- Без копирования (с заимствованием) ---
+// Поля &'de str заимствуют данные напрямую из входных данных — НУЛЕВОЕ выделение памяти.
 #[derive(Deserialize)]
 struct BorrowedRecord<'a> {
-    name: &'a str,          // Points into the input buffer
-    value: &'a str,         // Points into the input buffer
+    name: &'a str,          // Указывает на область во входном буфере
+    value: &'a str,         // Указывает на область во входном буфере
 }
 
 fn main() {
     let input = r#"{"name": "cpu_temp", "value": "72.5"}"#;
 
-    // Owned: allocates two String objects
+    // С владением: выделяет память под два объекта String
     let owned: OwnedRecord = serde_json::from_str(input).unwrap();
 
-    // Zero-copy: `name` and `value` point into `input` — no allocation
+    // Без копирования: поля `name` и `value` указывают внутрь `input` — без выделения памяти
     let borrowed: BorrowedRecord = serde_json::from_str(input).unwrap();
 
-    // The output is lifetime-bound: borrowed can't outlive input
+    // Вывод привязан к времени жизни: borrowed не может пережить input
     println!("{}: {}", borrowed.name, borrowed.value);
 }
 ```
 
-**Understanding the lifetime**:
+**Понимание времен жизни (lifetimes)**:
 
 ```rust,ignore
-// Deserialize<'de> — the struct can borrow from data with lifetime 'de:
+// Deserialize<'de> — структура может заимствовать из данных со временем жизни 'de:
 //   struct BorrowedRecord<'a> where 'a == 'de
-//   Only works when the input buffer lives long enough
+//   Работает только тогда, когда входной буфер живет достаточно долго
 
-// DeserializeOwned — the struct owns all its data, no borrowing:
+// DeserializeOwned — структура владеет всеми своими данными, без заимствований:
 //   trait DeserializeOwned: for<'de> Deserialize<'de> {}
-//   Works with any input lifetime (the struct is independent)
+//   Работает с любым временем жизни входных данных (структура независима)
 
 use serde::de::DeserializeOwned;
 
-// This function requires owned types — input can be temporary
+// Эта функция требует типов с владением — входные данные могут быть временными
 fn parse_owned<T: DeserializeOwned>(input: &str) -> T {
     serde_json::from_str(input).unwrap()
 }
 
-// This function allows borrowing — more efficient but restricts lifetimes
+// Эта функция разрешает заимствование — более эффективно, но накладывает ограничения на времена жизни
 fn parse_borrowed<'a, T: Deserialize<'a>>(input: &'a str) -> T {
     serde_json::from_str(input).unwrap()
 }
 ```
 
-**When to use zero-copy**:
-- Parsing large files where you only need a few fields
-- High-throughput pipelines (network packets, log lines)
-- When the input buffer already lives long enough (e.g., memory-mapped file)
+**Когда использовать zero-copy**:
+- Парсинг больших файлов, когда вам требуется всего несколько полей
+- Высокопроизводительные конвейеры (сетевые пакеты, строки логов)
+- Когда входной буфер уже живет достаточно долго (например, файл, отображенный в память - memory-mapped file)
 
-**When NOT to use zero-copy**:
-- Input is ephemeral (network read buffer that's reused)
-- You need to store the result beyond the input's lifetime
-- Fields need transformation (escapes, normalization)
+**Когда НЕ использовать zero-copy**:
+- Входной буфер является эфемерным (например, переиспользуемый буфер чтения из сети)
+- Вам нужно хранить результат дольше времени жизни входного буфера
+- Поля требуют трансформации (разрешение экранирования, нормализация)
 
-> **Practical tip**: `Cow<'a, str>` gives you the best of both — borrow when
-> possible, allocate when necessary (e.g., when JSON escape sequences need
-> unescaping). serde supports Cow natively.
+> **Практический совет**: `Cow<'a, str>` дает лучшее из обоих миров — заимствование по
+> возможности и выделение памяти при необходимости (например, когда управляющие последовательности JSON требуют
+> разэкранирования). serde поддерживает Cow «из коробки».
 
-### The Format Ecosystem
+### Экосистема форматов
 
-| Format | Crate | Human-Readable | Size | Speed | Use Case |
+| Формат | Библиотека (Crate) | Читаемость человеком | Размер | Скорость | Сценарий использования |
 |--------|-------|:--------------:|:----:|:-----:|----------|
-| JSON | `serde_json` | ✅ | Large | Good | Config files, REST APIs, logging |
-| TOML | `toml` | ✅ | Medium | Good | Config files (Cargo.toml style) |
-| YAML | `serde_yaml` | ✅ | Medium | Good | Config files (complex nesting) |
-| bincode | `bincode` | ❌ | Small | Fast | IPC, caches, Rust-to-Rust |
-| postcard | `postcard` | ❌ | Tiny | Very fast | Embedded systems, `no_std` |
-| MessagePack | `rmp-serde` | ❌ | Small | Fast | Cross-language binary protocol |
-| CBOR | `ciborium` | ❌ | Small | Fast | IoT, constrained environments |
+| JSON | `serde_json` | ✅ | Большой | Хорошая | Конфиги, REST API, логирование |
+| TOML | `toml` | ✅ | Средний | Хорошая | Конфиги (в стиле Cargo.toml) |
+| YAML | `serde_yaml` | ✅ | Средний | Хорошая | Конфиги (со сложной вложенностью) |
+| bincode | `bincode` | ❌ | Малый | Быстрая | Межпроцессное взаимодействие (IPC), кэши, Rust-to-Rust |
+| postcard | `postcard` | ❌ | Крошечный | Очень быстрая | Встраиваемые системы (embedded), `no_std` |
+| MessagePack | `rmp-serde` | ❌ | Малый | Быстрая | Межъязыковой бинарный протокол |
+| CBOR | `ciborium` | ❌ | Малый | Быстрая | IoT, среды с ограниченными ресурсами |
 
 ```rust
-// Same struct, many formats — serde's power:
+// Одна структура, много форматов — сила фреймворка serde:
 
 #[derive(serde::Serialize, serde::Deserialize, Debug)]
 struct DiagConfig {
@@ -284,30 +284,30 @@ let config = DiagConfig {
 };
 
 // JSON:   {"name":"accel_diag","tests":["memory","compute"],"timeout_secs":300}
-let json = serde_json::to_string(&config).unwrap();       // 67 bytes
+let json = serde_json::to_string(&config).unwrap();       // 67 байт
 
-// bincode: compact binary — ~40 bytes, no field names
-let bin = bincode::serialize(&config).unwrap();            // Much smaller
+// bincode: компактный бинарный формат — около 40 байт, без имён полей
+let bin = bincode::serialize(&config).unwrap();            // Намного меньше
 
-// postcard: even smaller, varint encoding — great for embedded
+// postcard: ещё меньше, кодирование varint — отлично подходит для встраиваемых систем
 // let post = postcard::to_allocvec(&config).unwrap();
 ```
 
-> **Choose your format**:
-> - Config files humans edit → TOML or JSON
-> - Rust-to-Rust IPC/caching → bincode (fast, compact, not cross-language)
-> - Cross-language binary → MessagePack or CBOR
-> - Embedded / `no_std` → postcard
+> **Выбирайте правильный формат**:
+> - Файлы конфигурации, редактируемые людьми → TOML или JSON
+> - Межпроцессное взаимодействие (IPC) или кэширование Rust-to-Rust → bincode (быстрый, компактный, но не межъязыковой)
+> - Межъязыковой бинарный формат → MessagePack или CBOR
+> - Встраиваемые системы / `no_std` → postcard
 
-### Binary Data and repr(C)
+### Бинарные данные и repr(C)
 
-For hardware diagnostics, parsing binary protocol data is common. Rust provides
-tools for safe, zero-copy binary data handling:
+При диагностике аппаратного обеспечения часто приходится парсить бинарные данные протоколов. Rust предоставляет
+инструменты для безопасной обработки бинарных данных без копирования (zero-copy):
 
 ```rust
-// --- #[repr(C)]: Predictable memory layout ---
-// Ensures fields are laid out in declaration order with C padding rules.
-// Essential for matching hardware register layouts and protocol headers.
+// --- #[repr(C)]: Предсказуемое расположение в памяти ---
+// Гарантирует, что поля располагаются в порядке объявления согласно правилам выравнивания C.
+// Важно для соответствия структурам аппаратных регистров и заголовкам протоколов.
 
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
@@ -320,7 +320,7 @@ struct IpmiHeader {
     cmd: u8,
 }
 
-// --- Safe binary parsing with manual deserialization ---
+// --- Безопасный бинарный парсинг с ручной десериализацией ---
 impl IpmiHeader {
     fn from_bytes(data: &[u8]) -> Option<Self> {
         if data.len() < size_of::<Self>() {
@@ -340,7 +340,7 @@ impl IpmiHeader {
     fn lun(&self)    -> u8 { self.net_fn_lun & 0x03 }
 }
 
-// --- Endianness-aware parsing ---
+// --- Парсинг с учетом порядка байт (Endianness) ---
 fn read_u16_le(data: &[u8], offset: usize) -> u16 {
     u16::from_le_bytes([data[offset], data[offset + 1]])
 }
@@ -352,25 +352,25 @@ fn read_u32_be(data: &[u8], offset: usize) -> u32 {
     ])
 }
 
-// --- #[repr(C, packed)]: Remove padding (alignment = 1) ---
+// --- #[repr(C, packed)]: Удаление выравнивания (выравнивание = 1 байт) ---
 #[repr(C, packed)]
 #[derive(Debug, Clone, Copy)]
 struct PcieCapabilityHeader {
-    cap_id: u8,        // Capability ID
-    next_cap: u8,      // Pointer to next capability
-    cap_reg: u16,      // Capability-specific register
+    cap_id: u8,        // ID возможностей (Capability ID)
+    next_cap: u8,      // Указатель на следующие возможности
+    cap_reg: u16,      // Специализированный регистр возможностей
 }
-// ⚠️ Packed structs: taking &field creates an unaligned reference — UB.
-// Always copy fields out: let id = header.cap_id;  // OK (Copy)
-// Never do: let r = &header.cap_reg;               // UB if unaligned
+// ⚠️ Упакованные структуры: получение ссылки & на поле создает невыровненную ссылку — неопределенное поведение (UB).
+// Всегда копируйте поля: let id = header.cap_id;  // OK (Copy)
+// Никогда не пишите: let r = &header.cap_reg;               // UB, если ссылка не выровнена
 ```
 
-### zerocopy and bytemuck — Safe Transmutation
+### zerocopy и bytemuck — безопасное преобразование (Transmutation)
 
-Instead of `unsafe` transmute, use crates that verify layout safety at compile time:
+Вместо `unsafe` функции `transmute` используйте библиотеки, которые проверяют безопасность расположения данных в памяти на этапе компиляции:
 
 ```rust
-// --- zerocopy: Compile-time checked zero-copy conversions ---
+// --- zerocopy: Проверяемые на этапе компиляции преобразования без копирования ---
 // Cargo.toml: zerocopy = { version = "0.8", features = ["derive"] }
 
 use zerocopy::{FromBytes, IntoBytes, KnownLayout, Immutable};
@@ -381,16 +381,16 @@ struct SensorReading {
     sensor_id: u16,
     flags: u8,
     _reserved: u8,
-    value: u32,     // Fixed-point: actual = value / 1000.0
+    value: u32,     // Фиксированная запятая: фактическое значение = value / 1000.0
 }
 
 fn parse_sensor(raw: &[u8]) -> Option<&SensorReading> {
-    // Safe zero-copy: verifies alignment and size AT COMPILE TIME
+    // Безопасный zero-copy: проверяет выравнивание и размер НА ЭТАПЕ КОМПИЛЯЦИИ
     SensorReading::ref_from_bytes(raw).ok()
-    // Returns &SensorReading pointing INTO raw — no copy, no allocation
+    // Возвращает &SensorReading, указывающую ВНУТРЬ raw — без копирования и выделения памяти
 }
 
-// --- bytemuck: Simple, battle-tested ---
+// --- bytemuck: Простой и проверенный временем ---
 // Cargo.toml: bytemuck = { version = "1", features = ["derive"] }
 
 use bytemuck::{Pod, Zeroable};
@@ -403,49 +403,49 @@ struct GpuRegister {
 }
 
 fn cast_registers(data: &[u8]) -> &[GpuRegister] {
-    // Safe cast: Pod guarantees all bit patterns are valid
+    // Безопасное приведение: Pod гарантирует валидность любой битовой последовательности
     bytemuck::cast_slice(data)
 }
 ```
 
-**When to use which**:
+**Когда что использовать**:
 
-| Approach | Safety | Overhead | Use When |
+| Подход | Безопасность | Накладные расходы | Когда использовать |
 |----------|:------:|:--------:|----------|
-| Manual field-by-field parsing | ✅ Safe | Copy fields | Small structs, complex layouts |
-| `zerocopy` | ✅ Safe | Zero-copy | Large buffers, many reads, compile-time checks |
-| `bytemuck` | ✅ Safe | Zero-copy | Simple `Pod` types, casting slices |
-| `unsafe { transmute() }` | ❌ Unsafe | Zero-copy | Last resort — avoid in application code |
+| Ручной посимвольный/побайтовый парсинг | ✅ Безопасно | Копирование полей | Небольшие структуры, сложные структуры данных |
+| `zerocopy` | ✅ Безопасно | Без копирования | Большие буферы, частое чтение, проверки компилятора |
+| `bytemuck` | ✅ Безопасно | Без копирования | Простые типы `Pod` (Plain Old Data), приведение срезов |
+| `unsafe { transmute() }` | ❌ Небезопасно | Без копирования | Крайний случай — избегайте в прикладном коде |
 
-### bytes::Bytes — Reference-Counted Buffers
+### bytes::Bytes — буферы с подсчетом ссылок
 
-The `bytes` crate (used by tokio, hyper, tonic) provides zero-copy byte buffers
-with reference counting — `Bytes` is to `Vec<u8>` what `Arc<[u8]>` is to owned slices:
+Библиотека `bytes` (используется в tokio, hyper, tonic) предоставляет байтовые буферы без копирования
+с подсчетом ссылок — `Bytes` относится к `Vec<u8>` так же, как `Arc<[u8]>` к массивам во владении:
 
 ```rust
 use bytes::{Bytes, BytesMut, Buf, BufMut};
 
 fn main() {
-    // --- BytesMut: mutable buffer for building data ---
+    // --- BytesMut: изменяемый буфер для создания данных ---
     let mut buf = BytesMut::with_capacity(1024);
-    buf.put_u8(0x01);                    // Write a byte
-    buf.put_u16(0x1234);                 // Write u16 (big-endian)
-    buf.put_slice(b"hello");             // Write raw bytes
-    buf.put(&b"world"[..]);              // Write from slice
+    buf.put_u8(0x01);                    // Запись байта
+    buf.put_u16(0x1234);                 // Запись u16 (big-endian)
+    buf.put_slice(b"hello");             // Запись сырых байт
+    buf.put(&b"world"[..]);              // Запись из среза
 
-    // Freeze into immutable Bytes (zero cost):
+    // «Замораживание» в неизменяемый Bytes (нулевая стоимость):
     let data: Bytes = buf.freeze();
 
-    // --- Bytes: immutable, reference-counted, cloneable ---
-    let data2 = data.clone();            // Cheap: increments refcount, NOT deep copy
-    let slice = data.slice(3..8);        // Zero-copy sub-slice (shares buffer)
+    // --- Bytes: неизменяемый буфер с подсчетом ссылок, поддерживающий клонирование ---
+    let data2 = data.clone();            // Дешево: увеличивает счетчик ссылок, а НЕ делает глубокую копию
+    let slice = data.slice(3..8);        // Срез без копирования (разделяет тот же буфер)
 
-    // Read from Bytes using the Buf trait:
+    // Чтение из Bytes с помощью типажа Buf:
     let mut reader = &data[..];
     let byte = reader.get_u8();          // 0x01
     let short = reader.get_u16();        // 0x1234
 
-    // Split without copying:
+    // Разделение без копирования:
     let mut original = Bytes::from_static(b"HEADER\x00PAYLOAD");
     let header = original.split_to(6);   // header = "HEADER", original = "\x00PAYLOAD"
 
@@ -454,44 +454,44 @@ fn main() {
 }
 ```
 
-**`bytes` vs `Vec<u8>`**:
+**`bytes` против `Vec<u8>`**:
 
-| Feature | `Vec<u8>` | `Bytes` |
+| Особенность | `Vec<u8>` | `Bytes` |
 |---------|-----------|---------|
-| Clone cost | O(n) deep copy | O(1) refcount increment |
-| Sub-slicing | Borrows with lifetime | Owned, refcount-tracked |
-| Thread safety | Not `Sync` (needs `Arc`) | `Send + Sync` built in |
-| Mutability | Direct `&mut` | Split into `BytesMut` first |
-| Ecosystem | Standard library | tokio, hyper, tonic, axum |
+| Стоимость клонирования | Глубокое копирование O(n) | Увеличение счетчика ссылок O(1) |
+| Взятие среза | Заимствование с временем жизни | Собственный буфер, отслеживаемый по ссылке |
+| Потокобезопасность | Не реализует `Sync` (требуется `Arc`) | `Send + Sync` «из коробки» |
+| Изменяемость | Прямая `&mut` | Сначала нужно разделить на `BytesMut` |
+| Экосистема | Стандартная библиотека | tokio, hyper, tonic, axum |
 
-> **When to use bytes**: Network protocols, packet parsing, any scenario where
-> you receive a buffer and need to split it into parts that are processed by
-> different components or threads. The zero-copy splitting is the killer feature.
+> **Когда использовать bytes**: Сетевые протоколы, парсинг пакетов, любой сценарий, в котором
+> вы получаете буфер и должны разделить его на части, обрабатываемые различными
+> компонентами или потоками. Разделение без копирования — главная killer-фича.
 
-> **Key Takeaways — Serialization & Binary Data**
-> - serde's derive macros handle 90% of cases; use attributes (`rename`, `skip`, `default`) for the rest
-> - Zero-copy deserialization (`&'a str` in structs) avoids allocation for read-heavy workloads
-> - `repr(C)` + `zerocopy`/`bytemuck` for hardware register layouts; `bytes::Bytes` for reference-counted buffers
+> **Основные выводы — Сериализация и бинарные данные**
+> - Макросы derive от serde справляются с 90% задач; в остальных случаях используйте атрибуты (`rename`, `skip`, `default`).
+> - Десериализация без копирования (`&'a str` в структурах) исключает выделение памяти для задач с интенсивным чтением.
+> - Изучите `repr(C)` + `zerocopy`/`bytemuck` для представления регистров оборудования; `bytes::Bytes` для буферов с подсчетом ссылок.
 
-> **See also:** [Ch 9 — Error Handling](ch10-error-handling-patterns.md) for combining serde errors with `thiserror`. [Ch 11 — Unsafe](ch12-unsafe-rust-controlled-danger.md) for `repr(C)` and FFI data layouts.
+> **См. также:** [Глава 9 — Обработка ошибок](ch10-error-handling-patterns.md) для интеграции ошибок serde с `thiserror`. [Глава 11 — Небезопасный Rust](ch12-unsafe-rust-controlled-danger.md) для `repr(C)` и размещения данных FFI.
 
 ```mermaid
 flowchart LR
-    subgraph Input
+    subgraph Входные данные
         JSON["JSON"]
         TOML["TOML"]
         Bin["bincode"]
         MsgP["MessagePack"]
     end
 
-    subgraph serde["serde data model"]
+    subgraph serde["модель данных serde"]
         Ser["Serialize"]
         De["Deserialize"]
     end
 
-    subgraph Output
-        Struct["Rust struct"]
-        Enum["Rust enum"]
+    subgraph Выходные данные
+        Struct["Структура Rust"]
+        Enum["Перечисление Rust"]
     end
 
     JSON --> De
@@ -517,12 +517,12 @@ flowchart LR
 
 ---
 
-### Exercise: Custom serde Deserialization ★★★ (~45 min)
+### Упражнение: Пользовательская десериализация в serde ★★★ (~45 мин)
 
-Design a `HumanDuration` wrapper that deserializes from human-readable strings like `"30s"`, `"5m"`, `"2h"` using a custom serde deserializer. It should also serialize back to the same format.
+Разработайте обёртку `HumanDuration`, которая десериализует данные из понятных человеку строк (таких как `"30s"`, `"5m"`, `"2h"`) с помощью собственного десериализатора serde. Она также должна сериализовать данные обратно в этот же формат.
 
 <details>
-<summary>🔑 Solution</summary>
+<summary>🔑 Решение</summary>
 
 ```rust,ignore
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
@@ -534,20 +534,20 @@ struct HumanDuration(std::time::Duration);
 impl HumanDuration {
     fn from_str(s: &str) -> Result<Self, String> {
         let s = s.trim();
-        if s.is_empty() { return Err("empty duration string".into()); }
+        if s.is_empty() { return Err("пустая строка длительности".into()); }
 
         let (num_str, suffix) = s.split_at(
             s.find(|c: char| !c.is_ascii_digit()).unwrap_or(s.len())
         );
         let value: u64 = num_str.parse()
-            .map_err(|_| format!("invalid number: {num_str}"))?;
+            .map_err(|_| format!("неверное число: {num_str}"))?;
 
         let duration = match suffix {
             "s" | "sec"  => std::time::Duration::from_secs(value),
             "m" | "min"  => std::time::Duration::from_secs(value * 60),
             "h" | "hr"   => std::time::Duration::from_secs(value * 3600),
             "ms"         => std::time::Duration::from_millis(value),
-            other        => return Err(format!("unknown suffix: {other}")),
+            other        => return Err(format!("неизвестный суффикс: {other}")),
         };
         Ok(HumanDuration(duration))
     }
@@ -596,11 +596,10 @@ fn main() {
 
     let serialized = serde_json::to_string(&config).unwrap();
     assert!(serialized.contains("30s"));
-    println!("Config: {serialized}");
+    println!("Конфиг: {serialized}");
 }
 ```
 
 </details>
 
 ***
-

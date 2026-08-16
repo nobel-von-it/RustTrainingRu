@@ -1,50 +1,50 @@
-# 12. Unsafe Rust — Controlled Danger 🔴
+# 12. Небезопасный Rust — контролируемая опасность 🔴
 
-> **What you'll learn:**
-> - The five unsafe superpowers and when each is needed
-> - Writing sound abstractions: safe API, unsafe internals
-> - FFI patterns for calling C from Rust (and back)
-> - Common UB pitfalls and arena/slab allocator patterns
+> **Чему вы научитесь:**
+> - Пять «суперсил» unsafe и когда каждая из них необходима
+> - Написание надежных (sound) абстракций: безопасный API, небезопасная реализация
+> - Шаблоны FFI для вызова C из Rust (и наоборот)
+> - Распространенные ошибки, приводящие к неопределенному поведению (UB), и шаблоны аллокаторов arena/slab
 
-## The Five Unsafe Superpowers
+## Пять суперсил unsafe
 
-`unsafe` unlocks five operations that the compiler can't verify:
+Ключевое слово `unsafe` открывает доступ к пяти операциям, безопасность которых компилятор не может гарантировать самостоятельно:
 
 ```rust
-// SAFETY: each operation is explained inline below.
+// БЕЗОПАСНОСТЬ: каждая операция поясняется ниже по тексту.
 unsafe {
-    // 1. Dereference a raw pointer
+    // 1. Разыменование сырого указателя
     let ptr: *const i32 = &42;
-    let value = *ptr; // Could be a dangling/null pointer
+    let value = *ptr; // Может быть висячим или нулевым указателем
 
-    // 2. Call an unsafe function
+    // 2. Вызов небезопасной функции
     let layout = std::alloc::Layout::new::<u64>();
     let mem = std::alloc::alloc(layout);
 
-    // 3. Access a mutable static variable
+    // 3. Доступ к изменяемой статической переменной
     static mut COUNTER: u32 = 0;
-    COUNTER += 1; // Data race if multiple threads access
+    COUNTER += 1; // Состояние гонки (data race) при доступе из нескольких потоков
 
-    // 4. Implement an unsafe trait
+    // 4. Реализация небезопасного типажа
     // unsafe impl Send for MyType {}
 
-    // 5. Access fields of a union
+    // 5. Доступ к полям объединения (union)
     // union IntOrFloat { i: i32, f: f32 }
     // let u = IntOrFloat { i: 42 };
-    // let f = u.f; // Reinterpret bits — could be garbage
+    // let f = u.f; // Реинтерпретация битов — может быть мусором
 }
 ```
 
-> **Key principle**: `unsafe` doesn't turn off the borrow checker or type system.
-> It only unlocks these five specific capabilities. All other Rust rules still apply.
+> **Ключевой принцип**: `unsafe` не отключает проверку заимствований или систему типов.
+> Он разблокирует только эти пять конкретных возможностей. Все остальные правила Rust продолжают действовать.
 
-### Writing Sound Abstractions
+### Написание надежных абстракций
 
-The purpose of `unsafe` is to build **safe abstractions** around unsafe operations:
+Цель `unsafe` заключается в построении **безопасных абстракций** вокруг небезопасных операций:
 
 ```rust
-/// A fixed-capacity stack-allocated buffer.
-/// All public methods are safe — the unsafe is encapsulated.
+/// Буфер фиксированной емкости, расположенный на стеке.
+/// Все публичные методы безопасны — unsafe-код инкапсулирован.
 pub struct StackBuf<T, const N: usize> {
     data: [std::mem::MaybeUninit<T>; N],
     len: usize,
@@ -53,9 +53,9 @@ pub struct StackBuf<T, const N: usize> {
 impl<T, const N: usize> StackBuf<T, N> {
     pub fn new() -> Self {
         StackBuf {
-            // Each element is individually MaybeUninit — no unsafe needed.
-            // `const { ... }` blocks (Rust 1.79+) let us repeat a non-Copy
-            // const expression N times.
+            // Каждый элемент по отдельности инициализируется как MaybeUninit — unsafe не требуется.
+            // Блоки `const { ... }` (Rust 1.79+) позволяют повторить не реализующее Copy
+            // константное выражение N раз.
             data: [const { std::mem::MaybeUninit::uninit() }; N],
             len: 0,
         }
@@ -63,10 +63,10 @@ impl<T, const N: usize> StackBuf<T, N> {
 
     pub fn push(&mut self, value: T) -> Result<(), T> {
         if self.len >= N {
-            return Err(value); // Buffer full — return value to caller
+            return Err(value); // Буфер заполнен — возвращаем значение вызывающему коду
         }
-        // SAFETY: len < N, so data[len] is within bounds.
-        // We write a valid T into the MaybeUninit slot.
+        // SAFETY: len < N, поэтому data[len] находится в пределах границ.
+        // Мы записываем корректное значение типа T в ячейку MaybeUninit.
         self.data[self.len] = std::mem::MaybeUninit::new(value);
         self.len += 1;
         Ok(())
@@ -74,7 +74,7 @@ impl<T, const N: usize> StackBuf<T, N> {
 
     pub fn get(&self, index: usize) -> Option<&T> {
         if index < self.len {
-            // SAFETY: index < len, and data[0..len] are all initialized.
+            // SAFETY: index < len, и все элементы data[0..len] инициализированы.
             Some(unsafe { self.data[index].assume_init_ref() })
         } else {
             None
@@ -84,7 +84,7 @@ impl<T, const N: usize> StackBuf<T, N> {
 
 impl<T, const N: usize> Drop for StackBuf<T, N> {
     fn drop(&mut self) {
-        // SAFETY: data[0..len] are initialized — drop them properly.
+        // SAFETY: элементы data[0..len] инициализированы — корректно освобождаем их (drop).
         for i in 0..self.len {
             unsafe { self.data[i].assume_init_drop(); }
         }
@@ -92,15 +92,15 @@ impl<T, const N: usize> Drop for StackBuf<T, N> {
 }
 ```
 
-**The three rules of sound unsafe code**:
-1. **Document invariants** — every `// SAFETY:` comment explains why the operation is valid
-2. **Encapsulate** — the unsafe is inside a safe API; users can't trigger UB
-3. **Minimize** — only the smallest possible block is `unsafe`
+**Три правила надежного (sound) unsafe-кода**:
+1. **Документируйте инварианты** — каждый комментарий `// SAFETY:` объясняет, почему операция безопасна и корректна
+2. **Инкапсулируйте** — небезопасный код должен находиться внутри безопасного API, чтобы пользователи не могли вызвать UB
+3. **Минимизируйте** — делайте блоки `unsafe` как можно меньше
 
-### FFI Patterns: Calling C from Rust
+### Шаблоны FFI: вызов C из Rust
 
 ```rust
-// Declare the C function signature:
+// Объявляем сигнатуру C-функции:
 extern "C" {
     fn strlen(s: *const std::ffi::c_char) -> usize;
     fn printf(format: *const std::ffi::c_char, ...) -> std::ffi::c_int;
@@ -108,68 +108,68 @@ extern "C" {
 
 // Safe wrapper:
 fn safe_strlen(s: &str) -> usize {
-    let c_string = std::ffi::CString::new(s).expect("string contains null byte");
-    // SAFETY: c_string is a valid null-terminated string, alive for the call.
+    let c_string = std::ffi::CString::new(s).expect("строка содержит нуль-символ");
+    // SAFETY: c_string является корректной строкой с завершающим нулем, существующей во время вызова.
     unsafe { strlen(c_string.as_ptr()) }
 }
 
-// Calling Rust from C (export a function):
+// Вызов Rust из C (экспорт функции):
 #[no_mangle]
 pub extern "C" fn rust_add(a: i32, b: i32) -> i32 {
     a + b
 }
 ```
 
-**Common FFI types**:
+**Общие типы FFI**:
 
-| Rust | C | Notes |
+| Тип Rust | Тип C | Примечания |
 |------|---|-------|
-| `i32` / `u32` | `int32_t` / `uint32_t` | Fixed-width, safe |
-| `*const T` / `*mut T` | `const T*` / `T*` | Raw pointers |
-| `std::ffi::CStr` | `const char*` (borrowed) | Null-terminated, borrowed |
-| `std::ffi::CString` | `char*` (owned) | Null-terminated, owned |
-| `std::ffi::c_void` | `void` | Opaque pointer target |
-| `Option<fn(...)>` | Nullable function pointer | `None` = NULL |
+| `i32` / `u32` | `int32_t` / `uint32_t` | Фиксированная разрядность, безопасно |
+| `*const T` / `*mut T` | `const T*` / `T*` | Сырые указатели |
+| `std::ffi::CStr` | `const char*` (заимствованная) | Завершается нулем, заимствуется |
+| `std::ffi::CString` | `char*` (владеющая) | Завершается нулем, владеет памятью |
+| `std::ffi::c_void` | `void` | Целевой тип для непрозрачного (opaque) указателя |
+| `Option<fn(...)>` | Указатель на функцию, который может быть NULL | `None` соответствует значению NULL |
 
-### Common UB Pitfalls
+### Распространенные ловушки неопределенного поведения (UB)
 
-| Pitfall | Example | Why It's UB |
+| Ловушка (Pitfall) | Пример | Почему это приводит к UB |
 |---------|---------|------------|
-| Null dereference | `*std::ptr::null::<i32>()` | Dereferencing null is always UB |
-| Dangling pointer | Dereference after `drop()` | Memory may be reused |
-| Data race | Two threads write to `static mut` | Unsynchronized concurrent writes |
-| Wrong `assume_init` | `MaybeUninit::<String>::uninit().assume_init()` | Reading uninitialized memory. **Note**: `[const { MaybeUninit::uninit() }; N]` (Rust 1.79+) is the safe way to create an array of `MaybeUninit` — no `unsafe` or `assume_init` needed (see `StackBuf::new()` above). |
-| Aliasing violation | Creating two `&mut` to same data | Violates Rust's aliasing model |
-| Invalid enum value | `std::mem::transmute::<u8, bool>(2)` | `bool` can only be 0 or 1 |
+| Разыменование нулевого указателя | `*std::ptr::null::<i32>()` | Разыменование NULL всегда является UB |
+| Висячий указатель (Dangling pointer) | Разыменование после `drop()` | Память может быть переиспользована |
+| Состояние гонки данных (Data race) | Два потока пишут в `static mut` | Несинхронизированная параллельная запись |
+| Неверный `assume_init` | `MaybeUninit::<String>::uninit().assume_init()` | Чтение неинициализированной памяти. **Примечание**: `[const { MaybeUninit::uninit() }; N]` (Rust 1.79+) — это безопасный способ создать массив `MaybeUninit`, для которого не требуется `unsafe` или `assume_init` (см. `StackBuf::new()` выше). |
+| Нарушение псевдонимов (Aliasing violation) | Создание двух ссылок `&mut` на одни и те же данные | Нарушает модель сдерживания псевдонимов Rust |
+| Недопустимое значение перечисления | `std::mem::transmute::<u8, bool>(2)` | Значение `bool` может быть только 0 или 1 |
 
-> **When to use `unsafe` in production**:
-> - FFI boundaries (calling C/C++ code)
-> - Performance-critical inner loops (avoid bounds checks)
-> - Building primitives (`Vec`, `HashMap` — these use unsafe internally)
-> - Never in application logic if you can avoid it
+> **Когда использовать `unsafe` в production**:
+> - Границы FFI (вызов кода на C/C++)
+> - Критичные к производительности внутренние циклы (во избежание проверок границ)
+> - Разработка базовых примитивов (`Vec`, `HashMap` используют unsafe внутри)
+> - Избегайте использования в прикладной логике приложений
 
-### Custom Allocators — Arena and Slab Patterns
+### Пользовательские аллокаторы — шаблоны Arena и Slab
 
-In C, you'd write custom `malloc()` replacements for specific allocation patterns —
-arena allocators that free everything at once, slab allocators for fixed-size objects,
-or pool allocators for high-throughput systems. Rust provides the same power through
-the `GlobalAlloc` trait and allocator crates, with the added benefit of lifetime-scoped
-arenas that **prevent use-after-free at compile time**.
+В языке C для оптимизации выделения памяти часто пишут замены стандартной функции `malloc()` —
+аллокаторы арены (arena allocators), освобождающие всю память за раз, slab-аллокаторы для объектов фиксированного размера
+или пулы объектов для высоконагруженных систем. Rust предоставляет аналогичные возможности посредством
+типажа `GlobalAlloc` и сторонних библиотек, добавляя к этому безопасность времен жизни (lifetimes),
+что позволяет **предотвратить ошибки использования памяти после освобождения (use-after-free) еще на этапе компиляции**.
 
-#### Arena Allocators — Bulk Allocation, Bulk Free
+#### Аллокаторы арены (Arena Allocators) — групповое выделение и освобождение памяти
 
-An arena allocates by bumping a pointer forward. Individual items can't be freed —
-the entire arena is freed at once. This is perfect for request-scoped or
-frame-scoped allocations:
+Арена выделяет память, просто сдвигая указатель вперед. Отдельные объекты внутри нее нельзя освободить —
+вся арена освобождается за один раз. Это идеально подходит для распределения памяти под нужды конкретного HTTP-запроса или
+отдельного кадра в графическом приложении:
 
 ```rust
 use bumpalo::Bump;
 
 fn process_sensor_frame(raw_data: &[u8]) {
-    // Create an arena for this frame's allocations
+    // Создаем арену для выделения памяти под этот кадр
     let arena = Bump::new();
 
-    // Allocate objects in the arena — ~2ns each (just a pointer bump)
+    // Выделяем объекты на арене — около 2 нс на каждый (простой сдвиг указателя)
     let header = arena.alloc(parse_header(raw_data));
     let readings: &mut [f32] = arena.alloc_slice_fill_default(header.sensor_count);
 
@@ -179,31 +179,31 @@ fn process_sensor_frame(raw_data: &[u8]) {
         }
     }
 
-    // Use readings...
+    // Используем показатели...
     let avg = readings.iter().sum::<f32>() / readings.len() as f32;
-    println!("Frame avg: {avg:.2}");
+    println!("Среднее по кадру: {avg:.2}");
 
-    // `arena` drops here — ALL allocations freed at once in O(1)
-    // No per-object destructor overhead, no fragmentation
+    // `arena` выходит из области видимости — ВСЕ выделения освобождаются одновременно за O(1)
+    // Без накладных расходов на вызов деструктора для каждого объекта и без фрагментации памяти
 }
 # fn parse_header(_: &[u8]) -> Header { Header { sensor_count: 4, payload_offset: 8 } }
 # struct Header { sensor_count: usize, payload_offset: usize }
 ```
 
-**Arena vs standard allocator**:
+**Арена против стандартного аллокатора**:
 
-| Aspect | `Vec::new()` / `Box::new()` | `Bump` arena |
+| Аспект | `Vec::new()` / `Box::new()` | Арена `Bump` |
 |--------|---------------------------|--------------|
-| Alloc speed | ~25ns (malloc) | ~2ns (pointer bump) |
-| Free speed | Per-object destructor | O(1) bulk free |
-| Fragmentation | Yes (long-lived processes) | None within arena |
-| Lifetime safety | Heap — freed on `Drop` | Arena reference — compile-time scoped |
-| Use case | General purpose | Request/frame/batch processing |
+| Скорость выделения | ~25 нс (malloc) | ~2 нс (сдвиг указателя) |
+| Скорость освобождения | Деструктор для каждого объекта | Групповое освобождение за O(1) |
+| Фрагментация | Да (в долгоживущих процессах) | Отсутствует внутри арены |
+| Безопасность времен жизни | Куча — освобождается при `Drop` | Ссылка на арену — ограничена временем жизни компилятором |
+| Сценарий использования | Общего назначения | Обработка запросов/кадров/пакетов |
 
-#### `typed-arena` — Type-Safe Arena
+#### `typed-arena` — типизированная арена
 
-When all arena objects are the same type, `typed-arena` provides a simpler API
-that returns references with the arena's lifetime:
+Когда все объекты арены имеют один и тот же тип, библиотека `typed-arena` предоставляет более простой API,
+который возвращает ссылки, привязанные ко времени жизни арены:
 
 ```rust
 use typed_arena::Arena;
@@ -216,25 +216,25 @@ struct AstNode<'a> {
 fn build_tree() {
     let arena: Arena<AstNode<'_>> = Arena::new();
 
-    // Allocate nodes — returns &AstNode tied to arena's lifetime
+    // Выделяем память под узлы — возвращает &AstNode, связанный со временем жизни арены
     let root = arena.alloc(AstNode { value: 1, children: vec![] });
     let left = arena.alloc(AstNode { value: 2, children: vec![] });
     let right = arena.alloc(AstNode { value: 3, children: vec![] });
 
-    // Build the tree — all references valid as long as `arena` lives
-    // (Mutable access requires interior mutability for truly mutable trees)
+    // Строим дерево — все ссылки валидны, пока жива `arena`
+    // (Для изменяемых деревьев требуется внутренняя изменяемость (interior mutability))
 
     println!("Root: {}, Left: {}, Right: {}", root.value, left.value, right.value);
 
-    // `arena` drops here — all nodes freed at once
+    // `arena` выходит из области видимости — все узлы освобождаются одновременно
 }
 ```
 
-#### Slab Allocators — Fixed-Size Object Pools
+#### Slab-аллокаторы (Slab Allocators) — пулы объектов фиксированного размера
 
-A slab allocator pre-allocates a pool of fixed-size slots. Objects are allocated
-and returned individually, but all slots are the same size — eliminating
-fragmentation and enabling O(1) alloc/free:
+Slab-аллокатор предварительно выделяет пул ячеек фиксированного размера. Объекты распределяются
+и освобождаются индивидуально, но все ячейки имеют один и тот же размер, что устраняет
+фрагментацию и обеспечивает выделение и освобождение памяти за O(1):
 
 ```rust
 use slab::Slab;
@@ -246,10 +246,10 @@ struct Connection {
 }
 
 fn connection_pool_example() {
-    // Pre-allocate a slab for connections
+    // Предварительно выделяем память под slab для подключений
     let mut connections: Slab<Connection> = Slab::with_capacity(256);
 
-    // Insert returns a key (usize index) — O(1)
+    // Вставка возвращает ключ (индекс типа usize) — O(1)
     let key1 = connections.insert(Connection {
         id: 1001,
         buffer: [0; 1024],
@@ -262,29 +262,29 @@ fn connection_pool_example() {
         active: true,
     });
 
-    // Access by key — O(1)
+    // Доступ по ключу — O(1)
     if let Some(conn) = connections.get_mut(key1) {
         conn.buffer[0..5].copy_from_slice(b"hello");
     }
 
-    // Remove returns the value — O(1), slot is reused for next insert
+    // Удаление возвращает значение — O(1), ячейка переиспользуется для следующей вставки
     let removed = connections.remove(key2);
     assert_eq!(removed.id, 1002);
 
-    // Next insert reuses the freed slot — no fragmentation
+    // Следующая вставка переиспользует освобожденную ячейку — нет фрагментации
     let key3 = connections.insert(Connection {
         id: 1003,
         buffer: [0; 1024],
         active: true,
     });
-    assert_eq!(key3, key2); // Same slot reused!
+    assert_eq!(key3, key2); // Переиспользуется та же ячейка!
 }
 ```
 
-#### Implementing a Minimal Arena (for `no_std`)
+#### Реализация минимальной арены (для `no_std`)
 
-For bare-metal environments where you can't pull in `bumpalo`, here's a
-minimal arena built on `unsafe`:
+Для сред с низкоуровневым программированием (bare-metal), где нет возможности использовать `bumpalo`, ниже приведена
+минимальная реализация арены на основе `unsafe`:
 
 ```rust
 #![cfg_attr(not(test), no_std)]
@@ -292,19 +292,19 @@ minimal arena built on `unsafe`:
 use core::alloc::Layout;
 use core::cell::{Cell, UnsafeCell};
 
-/// A simple bump allocator backed by a fixed-size byte array.
-/// Not thread-safe — use per-core or with a lock for multi-threaded contexts.
+/// Простой bump-аллокатор, использующий массив байт фиксированного размера.
+/// Не потокобезопасен — используйте для каждого ядра отдельно или под блокировкой в многопоточных средах.
 ///
-/// **Important**: Like `bumpalo`, this arena does NOT call destructors on
-/// allocated items when the arena is dropped. Types with `Drop` impls will
-/// leak their resources (file handles, sockets, etc.). Only allocate types
-/// without meaningful `Drop` impls, or manually drop them before the arena.
+/// **Важно**: как и `bumpalo`, эта арена НЕ вызывает деструкторы для
+/// выделенных объектов при удалении арены. Типы с реализацией `Drop` будут
+/// приводить к утечке ресурсов (дескрипторов файлов, сокетов и т.д.). Выделяйте только типы
+/// без значимой реализации `Drop` или вручную вызывайте drop до освобождения арены.
 pub struct FixedArena<const N: usize> {
-    // UnsafeCell is REQUIRED here: we mutate `buf` through `&self`.
-    // Without UnsafeCell, casting &self.buf to *mut u8 would be UB
-    // (violates Rust's aliasing model — shared ref implies immutable).
+    // Здесь ОБЯЗАТЕЛЕН UnsafeCell: мы мутируем `buf` через `&self`.
+    // Без UnsafeCell приведение &self.buf to *mut u8 вызвало бы UB
+    // (нарушение модели сдерживания псевдонимов Rust — общая ссылка подразумевает неизменяемость).
     buf: UnsafeCell<[u8; N]>,
-    offset: Cell<usize>, // Interior mutability for &self allocation
+    offset: Cell<usize>, // Внутренняя изменяемость для выделения памяти через &self
 }
 
 impl<const N: usize> FixedArena<N> {
@@ -315,27 +315,27 @@ impl<const N: usize> FixedArena<N> {
         }
     }
 
-    /// Allocate a `T` in the arena. Returns `None` if out of space.
+    /// Выделяет `T` на арене. Возвращает `None`, если закончилось место.
     pub fn alloc<T>(&self, value: T) -> Option<&mut T> {
         let layout = Layout::new::<T>();
         let current = self.offset.get();
 
-        // Align up
+        // Выравнивание вверх
         let aligned = (current + layout.align() - 1) & !(layout.align() - 1);
         let new_offset = aligned + layout.size();
 
         if new_offset > N {
-            return None; // Arena full
+            return None; // Арена заполнена
         }
 
         self.offset.set(new_offset);
 
-        // SAFETY:
-        // - `aligned` is within `buf` bounds (checked above)
-        // - Alignment is correct (aligned to T's requirement)
-        // - No aliasing: each alloc returns a unique, non-overlapping region
-        // - UnsafeCell grants permission to mutate through &self
-        // - The arena outlives the returned reference (caller must ensure)
+        // БЕЗОПАСНОСТЬ:
+        // - `aligned` находится в пределах границ `buf` (проверено выше)
+        // - Выравнивание верное (выровнено под требования T)
+        // - Отсутствие псевдонимов: каждое выделение возвращает уникальную, неперекрывающуюся область
+        // - UnsafeCell дает разрешение на изменение через &self
+        // - Арена переживает возвращенную ссылку (вызывающий код должен это гарантировать)
         let ptr = unsafe {
             let base = (self.buf.get() as *mut u8).add(aligned);
             let typed = base as *mut T;
@@ -346,10 +346,10 @@ impl<const N: usize> FixedArena<N> {
         Some(ptr)
     }
 
-    /// Reset the arena — invalidates all previous allocations.
+    /// Сбросить арену — делает все предыдущие выделения памяти недействительными.
     ///
     /// # Safety
-    /// Caller must ensure no references to arena-allocated data exist.
+    /// Вызывающий код должен гарантировать отсутствие существующих ссылок на выделенные на арене данные.
     pub unsafe fn reset(&self) {
         self.offset.set(0);
     }
@@ -364,24 +364,24 @@ impl<const N: usize> FixedArena<N> {
 }
 ```
 
-#### Choosing an Allocator Strategy
+#### Выбор стратегии выделения памяти
 
-> **Note**: The diagram below uses Mermaid syntax. It renders on GitHub and in
-> tools that support Mermaid (mdBook with `mermaid` plugin, VS Code with
-> Mermaid extension). In plain Markdown viewers, you'll see the raw source.
+> **Примечание**: Диаграмма ниже использует синтаксис Mermaid. Она отрисовывается на GitHub и в
+> инструментах с поддержкой Mermaid (например, mdBook с плагином `mermaid` или VS Code с
+> расширением Mermaid). В обычных средствах просмотра Markdown будет отображаться ее исходный код.
 
 ```mermaid
 graph TD
-    A["What's your allocation pattern?"] --> B{All same type?}
-    A --> I{"Environment?"}
-    B -->|Yes| C{Need individual free?}
-    B -->|No| D{Need individual free?}
-    C -->|Yes| E["<b>Slab</b><br/>slab crate<br/>O(1) alloc + free<br/>Index-based access"]
-    C -->|No| F["<b>typed-arena</b><br/>Bulk alloc, bulk free<br/>Lifetime-scoped refs"]
-    D -->|Yes| G["<b>Standard allocator</b><br/>Box, Vec, etc.<br/>General-purpose malloc"]
-    D -->|No| H["<b>Bump arena</b><br/>bumpalo crate<br/>~2ns alloc, O(1) bulk free"]
+    A["Каков шаблон выделения памяти?"] --> B{Все одного типа?}
+    A --> I{"Среда выполнения?"}
+    B -->|Yes| C{Нужно поштучное освобождение?}
+    B -->|No| D{Нужно поштучное освобождение?}
+    C -->|Yes| E["<b>Slab</b><br/>библиотека slab<br/>O(1) выделение + освобождение<br/>Доступ по индексам"]
+    C -->|No| F["<b>typed-arena</b><br/>Групповое выд. + освоб.<br/>Ссылки, ограниченные временем жизни"]
+    D -->|Yes| G["<b>Стандартный аллокатор</b><br/>Box, Vec и др.<br/>malloc общего назначения"]
+    D -->|No| H["<b>Bump-арена</b><br/>библиотека bumpalo<br/>Выделение ~2 нс, групповое освоб. O(1)"]
     
-    I -->|no_std| J["FixedArena (custom)<br/>or embedded-alloc"]
+    I -->|no_std| J["FixedArena (кастомная)<br/>или embedded-alloc"]
     I -->|std| K["bumpalo / typed-arena / slab"]
     
     style E fill:#91e5a3,color:#000
@@ -392,40 +392,40 @@ graph TD
     style K fill:#91e5a3,color:#000
 ```
 
-| C Pattern | Rust Equivalent | Key Advantage |
+| Шаблон в C | Эквивалент в Rust | Ключевое преимущество |
 |-----------|----------------|---------------|
-| Custom `malloc()` pool | `#[global_allocator]` impl | Type-safe, debuggable |
-| `obstack` (GNU) | `bumpalo::Bump` | Lifetime-scoped, no use-after-free |
-| Kernel slab (`kmem_cache`) | `slab::Slab<T>` | Type-safe, index-based |
-| Stack-allocated temp buffer | `FixedArena<N>` (above) | No heap, `const` constructible |
-| `alloca()` | `[T; N]` or `SmallVec` | Compile-time sized, no UB |
+| Кастомный пул `malloc()` | Реализация `#[global_allocator]` | Типобезопасный, поддается отладке |
+| `obstack` (GNU) | `bumpalo::Bump` | Ограничен временем жизни, нет use-after-free |
+| Ядерный slab (`kmem_cache`) | `slab::Slab<T>` | Типобезопасный, с доступом по индексам |
+| Временный буфер на стеке | `FixedArena<N>` (см. выше) | Без кучи, конструируется как `const` |
+| `alloca()` | `[T; N]` или `SmallVec` | Размер определяется при компиляции, нет UB |
 
-> **Cross-reference**: For bare-metal allocator setup (`#[global_allocator]` with
-> `embedded-alloc`), see the *Rust Training for C Programmers*, Chapter 15.1
-> "Global Allocator Setup" which covers the embedded-specific bootstrapping.
+> **Перекрестная ссылка**: Инструкции по настройке аллокатора для систем без ОС (bare-metal) (`#[global_allocator]` с
+> `embedded-alloc`) см. в *Обучении Rust для C-программистов*, Глава 15.1
+> «Global Allocator Setup», где рассматривается специфический для встраиваемых систем процесс инициализации.
 
-> **Key Takeaways — Unsafe Rust**
-> - Document invariants (`SAFETY:` comments), encapsulate behind safe APIs, minimize unsafe scope
-> - `[const { MaybeUninit::uninit() }; N]` (Rust 1.79+) replaces the old `assume_init` anti-pattern
-> - FFI requires `extern "C"`, `#[repr(C)]`, and careful null/lifetime handling
-> - Arena and slab allocators trade general-purpose flexibility for allocation speed
+> **Основные выводы — Небезопасный Rust**
+> - Документируйте инварианты (комментарии `SAFETY:`), инкапсулируйте небезопасный код за безопасными API, минимизируйте область действия unsafe.
+> - `[const { MaybeUninit::uninit() }; N]` (Rust 1.79+) заменяет старый антипаттерн с использованием `assume_init`.
+> - Для FFI требуются конструкции `extern "C"`, `#[repr(C)]` и тщательная обработка нулевых указателей и времен жизни.
+> - Арены и slab-аллокаторы жертвуют гибкостью общего назначения ради скорости выделения памяти.
 
-> **See also:** [Ch 4 — PhantomData](ch04-phantomdata-types-that-carry-no-data.md) for variance and drop-check interactions with unsafe code. [Ch 8 — Smart Pointers](ch09-smart-pointers-and-interior-mutability.md) for Pin and self-referential types.
+> **См. также:** [Глава 4 — PhantomData](ch04-phantomdata-types-that-carry-no-data.md) для изучения дисперсии (variance) и взаимодействия drop-check с небезопасным кодом. [Глава 8 — Умные указатели](ch09-smart-pointers-and-interior-mutability.md) для изучения Pin и самоссылающихся типов.
 
 ---
 
-### Exercise: Safe Wrapper around Unsafe ★★★ (~45 min)
+### Упражнение: Безопасная обёртка над unsafe-кодом ★★★ (~45 мин)
 
-Write a `FixedVec<T, const N: usize>` — a fixed-capacity, stack-allocated vector.
-Requirements:
-- `push(&mut self, value: T) -> Result<(), T>` returns `Err(value)` when full
-- `pop(&mut self) -> Option<T>` returns and removes the last element
-- `as_slice(&self) -> &[T]` borrows initialized elements
-- All public methods must be safe; all unsafe must be encapsulated with `SAFETY:` comments
-- `Drop` must clean up initialized elements
+Напишите структуру `FixedVec<T, const N: usize>` — вектор фиксированной емкости, расположенный на стеке.
+Требования:
+- `push(&mut self, value: T) -> Result<(), T>` возвращает `Err(value)`, если вектор заполнен
+- `pop(&mut self) -> Option<T>` извлекает и удаляет последний элемент
+- `as_slice(&self) -> &[T]` возвращает заимствование для инициализированных элементов
+- Все публичные методы должны быть безопасными; весь небезопасный код должен быть инкапсулирован с комментариями `SAFETY:`
+- Реализация типажа `Drop` должна освобождать ресурсы инициализированных элементов
 
 <details>
-<summary>🔑 Solution</summary>
+<summary>🔑 Решение</summary>
 
 ```rust
 use std::mem::MaybeUninit;
@@ -445,7 +445,7 @@ impl<T, const N: usize> FixedVec<T, N> {
 
     pub fn push(&mut self, value: T) -> Result<(), T> {
         if self.len >= N { return Err(value); }
-        // SAFETY: len < N, so data[len] is within bounds.
+        // SAFETY: len < N, поэтому data[len] находится в пределах границ.
         self.data[self.len] = MaybeUninit::new(value);
         self.len += 1;
         Ok(())
@@ -454,13 +454,13 @@ impl<T, const N: usize> FixedVec<T, N> {
     pub fn pop(&mut self) -> Option<T> {
         if self.len == 0 { return None; }
         self.len -= 1;
-        // SAFETY: data[len] was initialized (len was > 0 before decrement).
+        // SAFETY: элемент data[len] был инициализирован (len была > 0 перед уменьшением).
         Some(unsafe { self.data[self.len].assume_init_read() })
     }
 
     pub fn as_slice(&self) -> &[T] {
-        // SAFETY: data[0..len] are all initialized, and MaybeUninit<T>
-        // has the same layout as T.
+        // SAFETY: элементы data[0..len] инициализированы, а MaybeUninit<T>
+        // имеет такое же расположение в памяти, как и T.
         unsafe { std::slice::from_raw_parts(self.data.as_ptr() as *const T, self.len) }
     }
 
@@ -470,7 +470,7 @@ impl<T, const N: usize> FixedVec<T, N> {
 
 impl<T, const N: usize> Drop for FixedVec<T, N> {
     fn drop(&mut self) {
-        // SAFETY: data[0..len] are initialized — drop each one.
+        // SAFETY: элементы data[0..len] инициализированы — освобождаем каждый из них.
         for i in 0..self.len {
             unsafe { self.data[i].assume_init_drop(); }
         }
@@ -490,4 +490,3 @@ fn main() {
 </details>
 
 ***
-

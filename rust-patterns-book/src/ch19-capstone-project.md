@@ -1,59 +1,59 @@
-# Capstone Project: Type-Safe Task Scheduler
+# Выпускной проект: типобезопасный планировщик задач
 
-This project integrates patterns from across the book into a single, production-style system. You'll build a **type-safe, concurrent task scheduler** that uses generics, traits, typestate, channels, error handling, and testing.
+Этот проект объединяет паттерны со всей книги в единую систему промышленного уровня. Вы разработаете **типобезопасный конкурентный планировщик задач**, использующий обобщения, типажи, паттерн состояний типов (typestate), каналы, обработку ошибок и тестирование.
 
-**Estimated time**: 4–6 hours | **Difficulty**: ★★★
+**Оценочное время**: 4–6 часов | **Сложность**: ★★★
 
-> **What you'll practice:**
-> - Generics and trait bounds (Ch 1–2)
-> - Typestate pattern for task lifecycle (Ch 3)
-> - PhantomData for zero-cost state markers (Ch 4)
-> - Channels for worker communication (Ch 5)
-> - Concurrency with scoped threads (Ch 6)
-> - Error handling with `thiserror` (Ch 9)
-> - Testing with property-based tests (Ch 13)
-> - API design with `TryFrom` and validated types (Ch 14)
+> **Что вы закрепите на практике:**
+> - Обобщения и ограничения типажей (гл. 1–2)
+> - Паттерн состояний типов (typestate) для жизненного цикла задач (гл. 3)
+> - Использование `PhantomData` в качестве маркеров состояния с нулевой стоимостью (гл. 4)
+> - Каналы для взаимодействия между воркерами (гл. 5)
+> - Конкурентность с использованием связанных потоков (scoped threads) (гл. 6)
+> - Обработка ошибок с помощью `thiserror` (гл. 9)
+> - Тестирование, включая тестирование на основе свойств (property-based testing) (гл. 13)
+> - Проектирование API с помощью `TryFrom` и валидированных типов (гл. 14)
 
-## The Problem
+## Формулировка задачи
 
-Build a task scheduler where:
+Создайте планировщик задач, в котором:
 
-1. **Tasks** have a typed lifecycle: `Pending → Running → Completed` (or `Failed`)
-2. **Workers** pull tasks from a channel, execute them, and report results
-3. The **scheduler** manages task submission, worker coordination, and result collection
-4. Invalid state transitions are **compile-time errors**
+1. **Задачи** имеют типизированный жизненный цикл: `Pending → Running → Completed` (или `Failed`)
+2. **Воркеры (Workers)** извлекают задачи из канала, выполняют их и сообщают о результатах
+3. **Планировщик (Scheduler)** управляет отправкой задач, координацией воркеров и сбором результатов
+4. Невалидные переходы между состояниями приводят к **ошибкам компиляции**
 
 ```mermaid
 stateDiagram-v2
     [*] --> Pending: scheduler.submit(task)
-    Pending --> Running: worker picks up task
-    Running --> Completed: task succeeds
-    Running --> Failed: task returns Err
+    Pending --> Running: воркер забирает задачу
+    Running --> Completed: задача выполнена успешно
+    Running --> Failed: задача возвращает Err
     Completed --> [*]: scheduler.results()
     Failed --> [*]: scheduler.results()
 
-    Pending --> Pending: ❌ can't execute directly
-    Completed --> Running: ❌ can't re-run
+    Pending --> Pending: ❌ нельзя выполнить напрямую
+    Completed --> Running: ❌ нельзя запустить повторно
 ```
 
-## Step 1: Define the Task Types
+## Шаг 1: Определение типов задач
 
-Start with the typestate markers and a generic `Task`:
+Начните с маркеров состояний типов (typestate) и обобщенной структуры `Task`:
 
 ```rust
 use std::marker::PhantomData;
 
-// --- State markers (zero-sized) ---
+// --- Маркеры состояний (нулевого размера) ---
 struct Pending;
 struct Running;
 struct Completed;
 struct Failed;
 
-// --- Task ID (newtype for type safety) ---
+// --- Идентификатор задачи Task ID (newtype для типобезопасности) ---
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 struct TaskId(u64);
 
-// --- The Task struct, parameterized by lifecycle state ---
+// --- Структура Task, параметризованная состоянием жизненного цикла ---
 struct Task<State, R> {
     id: TaskId,
     name: String,
@@ -62,15 +62,15 @@ struct Task<State, R> {
 }
 ```
 
-**Your job**: Implement state transitions so that:
-- `Task<Pending, R>` can transition to `Task<Running, R>` (via `start()`)
-- `Task<Running, R>` can transition to `Task<Completed, R>` or `Task<Failed, R>`
-- No other transitions compile
+**Ваша задача**: Реализуйте переходы между состояниями так, чтобы:
+- `Task<Pending, R>` могла переходить в состояние `Task<Running, R>` (с помощью метода `start()`)
+- `Task<Running, R>` могла переходить в состояния `Task<Completed, R>` или `Task<Failed, R>`
+- Любые другие переходы приводили к ошибке компиляции
 
 <details>
-<summary>💡 Hint</summary>
+<summary>💡 Подсказка</summary>
 
-Each transition method should consume `self` and return the new state:
+Каждый метод перехода должен потреблять `self` и возвращать новое состояние:
 
 ```rust
 impl<R> Task<Pending, R> {
@@ -87,9 +87,9 @@ impl<R> Task<Pending, R> {
 
 </details>
 
-## Step 2: Define the Work Function
+## Шаг 2: Определение рабочей функции
 
-Tasks need a function to execute. Use a boxed closure:
+Задачи должны содержать выполняемую функцию. Используйте упакованное замыкание (boxed closure):
 
 ```rust
 struct WorkItem<R: Send + 'static> {
@@ -99,35 +99,34 @@ struct WorkItem<R: Send + 'static> {
 }
 ```
 
-**Your job**: Implement `WorkItem::new()` that accepts a task name and closure.
-Add a `TaskId` generator (simple atomic counter or mutex-protected counter).
+**Ваша задача**: Реализуйте функцию `WorkItem::new()`, которая принимает имя задачи и замыкание. Добавьте генератор `TaskId` (простой атомарный счетчик или счетчик, защищенный мьютексом).
 
-## Step 3: Error Handling
+## Шаг 3: Обработка ошибок
 
-Define the scheduler's error types using `thiserror`:
+Определите типы ошибок планировщика с помощью `thiserror`:
 
 ```rust,ignore
 use thiserror::Error;
 
 #[derive(Error, Debug)]
 pub enum SchedulerError {
-    #[error("scheduler is shut down")]
+    #[error("планировщик завершил работу")]
     ShutDown,
 
-    #[error("task {0:?} failed: {1}")]
+    #[error("задача {0:?} завершилась сбоем: {1}")]
     TaskFailed(TaskId, String),
 
-    #[error("channel send error")]
+    #[error("ошибка отправки в канал")]
     ChannelError(#[from] std::sync::mpsc::SendError<()>),
 
-    #[error("worker panicked")]
+    #[error("воркер запаниковал")]
     WorkerPanic,
 }
 ```
 
-## Step 4: The Scheduler
+## Шаг 4: Планировщик
 
-Build the scheduler using channels (Ch 5) and scoped threads (Ch 6):
+Постройте планировщик, используя каналы (глава 5 / Ch 5) и связанные потоки (глава 6 / Ch 6):
 
 ```rust
 use std::sync::mpsc;
@@ -145,13 +144,13 @@ struct TaskResult<R> {
 }
 ```
 
-**Your job**: Implement:
-- `Scheduler::new(num_workers: usize) -> Self` — creates channels and spawns workers
+**Ваша задача**: Реализуйте:
+- `Scheduler::new(num_workers: usize) -> Self` — создает каналы и запускает воркеры
 - `Scheduler::submit(&self, item: WorkItem<R>) -> Result<TaskId, SchedulerError>`
-- `Scheduler::shutdown(self) -> Vec<TaskResult<R>>` — drops the sender, joins workers, collects results
+- `Scheduler::shutdown(self) -> Vec<TaskResult<R>>` — уничтожает (drop) отправитель, ожидает завершения потоков воркеров (join) и собирает результаты
 
 <details>
-<summary>💡 Hint — Worker loop</summary>
+<summary>💡 Подсказка — Цикл воркера</summary>
 
 ```rust
 fn worker_loop<R: Send + 'static>(
@@ -173,7 +172,7 @@ fn worker_loop<R: Send + 'static>(
                     outcome,
                 });
             }
-            Err(_) => break, // Channel closed
+            Err(_) => break, // Канал закрыт
         }
     }
 }
@@ -181,14 +180,14 @@ fn worker_loop<R: Send + 'static>(
 
 </details>
 
-## Step 5: Integration Test
+## Шаг 5: Интеграционный тест
 
-Write tests that verify:
+Напишите тесты, проверяющие следующие сценарии:
 
-1. **Happy path**: Submit 10 tasks, shut down, verify all 10 results are `Ok`
-2. **Error handling**: Submit tasks that fail, verify `TaskResult.outcome` is `Err`
-3. **Empty scheduler**: Create and immediately shut down — no panics
-4. **Property test** (bonus): Use `proptest` to verify that for any N tasks (1..100), the scheduler always returns exactly N results
+1. **Основной успешный сценарий (Happy path)**: Отправьте 10 задач, завершите работу планировщика, убедитесь, что все 10 результатов вернули статус `Ok`
+2. **Обработка ошибок**: Отправьте задачи, завершающиеся ошибкой, и убедитесь, что `TaskResult.outcome` содержит `Err`
+3. **Пустой планировщик**: Создайте планировщик и сразу завершите его работу — программа не должна паниковать
+4. **Тест на основе свойств (Property test)** (бонус): Используйте библиотеку `proptest`, чтобы убедиться, что для любого количества задач N (от 1 до 100) планировщик всегда возвращает ровно N результатов
 
 ```rust
 #[cfg(test)]
@@ -232,20 +231,20 @@ mod tests {
 }
 ```
 
-## Step 6: Put It All Together
+## Шаг 6: Собираем все вместе
 
-Here's the `main()` that demonstrates the full system:
+Ниже приведен код функции `main()`, демонстрирующий работу всей системы в сборе:
 
 ```rust,ignore
 fn main() {
     let scheduler = Scheduler::<String>::new(4);
 
-    // Submit tasks with varying workloads
+    // Отправляем задачи с различной нагрузкой
     for i in 0..20 {
         let item = WorkItem::new(
             format!("compute-{i}"),
             move || {
-                // Simulate work
+                // Имитируем работу
                 std::thread::sleep(std::time::Duration::from_millis(10));
                 if i % 7 == 0 {
                     Err(format!("task {i} hit a simulated error"))
@@ -254,7 +253,7 @@ fn main() {
                 }
             },
         );
-        // NOTE: .unwrap() is used for brevity — handle SendError in production.
+        // ПРИМЕЧАНИЕ: .unwrap() используется для краткости — в продакшене обрабатывайте SendError.
         scheduler.submit(item).unwrap();
     }
 
@@ -276,25 +275,25 @@ fn main() {
 }
 ```
 
-## Evaluation Criteria
+## Критерии оценки
 
-| Criterion | Target |
+| Критерий | Ожидаемый результат |
 |-----------|--------|
-| Type safety | Invalid state transitions don't compile |
-| Concurrency | Workers run in parallel, no data races |
-| Error handling | All failures captured in `TaskResult`, no panics |
-| Testing | At least 3 tests; bonus for proptest |
-| Code organization | Clean module structure, public API uses validated types |
-| Documentation | Key types have doc comments explaining invariants |
+| Типобезопасность | Невалидные переходы состояний не компилируются |
+| Конкурентность | Воркеры выполняются параллельно, нет гонок данных (data races) |
+| Обработка ошибок | Все сбои сохраняются в `TaskResult`, отсутствие паник |
+| Тестирование | Как минимум 3 теста; бонус за использование proptest |
+| Организация кода | Чистая структура модулей, публичный API использует валидированные типы |
+| Документация | Ключевые типы содержат комментарии документации, объясняющие инварианты |
 
-## Extension Ideas
+## Идеи для расширения проекта
 
-Once the basic scheduler works, try these enhancements:
+После того как базовый планировщик заработает, попробуйте реализовать следующие улучшения:
 
-1. **Priority queue**: Add a `Priority` newtype (1–10) and process higher-priority tasks first
-2. **Retry policy**: Failed tasks retry up to N times before being marked permanently failed
-3. **Cancellation**: Add a `cancel(TaskId)` method that removes pending tasks
-4. **Async version**: Port to `tokio::spawn` with `tokio::sync::mpsc` channels (Ch 15)
-5. **Metrics**: Track per-worker task counts, average execution time, and failure rates
+1. **Очередь с приоритетами**: Добавьте новый тип `Priority` (1–10) и обрабатывайте задачи с более высоким приоритетом в первую очередь
+2. **Политика повторных попыток (Retry policy)**: Повторяйте запуск упавших задач до N раз, прежде чем пометить их окончательно сбойными
+3. **Отмена задач**: Добавьте метод `cancel(TaskId)`, удаляющий ожидающие выполнения задачи
+4. **Асинхронная версия**: Перепишите проект с использованием `tokio::spawn` и каналов `tokio::sync::mpsc` (глава 15 / Ch 15)
+5. **Метрики**: Отслеживайте количество задач на каждого воркера, среднее время выполнения и частоту ошибок
 
 ***

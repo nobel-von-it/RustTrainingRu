@@ -1,11 +1,11 @@
-## Exercises
+## Упражнения
 
-### Exercise 1: Type-Safe State Machine ★★ (~30 min)
+### Упражнение 1: типобезопасный конечный автомат ★★ (~30 мин)
 
-Build a traffic light state machine using the type-state pattern. The light must transition `Red → Green → Yellow → Red` and no other order should be possible.
+Создайте конечный автомат светофора с помощью паттерна состояний типов (type-state). Светофор должен переключаться в строгом порядке `Red → Green → Yellow → Red`, и никакие другие переходы не должны быть возможны.
 
 <details>
-<summary>🔑 Solution</summary>
+<summary>🔑 Решение</summary>
 
 ```rust
 use std::marker::PhantomData;
@@ -50,27 +50,27 @@ fn main() {
     let light = light.caution();     // Yellow
     let light = light.stop();        // Red
 
-    // light.caution(); // ❌ Compile error: no method `caution` on Red
-    // TrafficLight::new().stop(); // ❌ Compile error: no method `stop` on Red
+    // light.caution(); // ❌ Ошибка компиляции: нет метода `caution` для Red
+    // TrafficLight::new().stop(); // ❌ Ошибка компиляции: нет метода `stop` для Red
 }
 ```
 
-**Key takeaway**: Invalid transitions are compile errors, not runtime panics.
+**Основной вывод**: невалидные переходы вызывают ошибки компиляции, а не панику во время выполнения.
 
 </details>
 
 ---
 
-### Exercise 2: Unit-of-Measure with PhantomData ★★ (~30 min)
+### Упражнение 2: размерности величин с помощью PhantomData ★★ (~30 мин)
 
-Extend the unit-of-measure pattern from Ch4 to support:
+Расширьте паттерн размерностей величин (unit-of-measure) из главы 4 (Ch4), чтобы поддерживать:
 - `Meters`, `Seconds`, `Kilograms`
-- Addition of same units
-- Multiplication: `Meters * Meters = SquareMeters`
-- Division: `Meters / Seconds = MetersPerSecond`
+- Сложение величин одинаковой размерности
+- Умножение: `Meters * Meters = SquareMeters`
+- Деление: `Meters / Seconds = MetersPerSecond`
 
 <details>
-<summary>🔑 Solution</summary>
+<summary>🔑 Решение</summary>
 
 ```rust
 use std::marker::PhantomData;
@@ -127,10 +127,10 @@ fn main() {
     let speed = dist / time;
     println!("Speed: {:.2} m/s", speed.value);
 
-    let sum = width + height; // Same unit ✅
+    let sum = width + height; // Одинаковые размерности ✅
     println!("Sum: {:.1} m", sum.value);
 
-    // let bad = width + time; // ❌ Compile error: can't add Meters + Seconds
+    // let bad = width + time; // ❌ Ошибка компиляции: нельзя сложить Meters и Seconds
 }
 ```
 
@@ -138,15 +138,15 @@ fn main() {
 
 ---
 
-### Exercise 3: Channel-Based Worker Pool ★★★ (~45 min)
+### Упражнение 3: пул воркеров на основе каналов ★★★ (~45 мин)
 
-Build a worker pool using channels where:
-- A dispatcher sends `Job` structs through a channel
-- N workers consume jobs and send results back
-- Use `crossbeam-channel` (or `std::sync::mpsc` if crossbeam is unavailable)
+Создайте пул воркеров (worker pool) с использованием каналов, в котором:
+- Диспетчер отправляет структуры `Job` через канал
+- N воркеров считывают задачи и отправляют результаты обратно
+- Используйте `crossbeam-channel` (или `std::sync::mpsc`, если библиотека crossbeam недоступна)
 
 <details>
-<summary>🔑 Solution</summary>
+<summary>🔑 Решение</summary>
 
 ```rust
 use std::sync::mpsc;
@@ -167,45 +167,45 @@ fn worker_pool(jobs: Vec<Job>, num_workers: usize) -> Vec<JobResult> {
     let (job_tx, job_rx) = mpsc::channel::<Job>();
     let (result_tx, result_rx) = mpsc::channel::<JobResult>();
 
-    // Wrap receiver in Arc<Mutex> for sharing among workers
+    // Оборачиваем получатель (receiver) в Arc<Mutex> для совместного использования воркерами
     let job_rx = std::sync::Arc::new(std::sync::Mutex::new(job_rx));
 
-    // Spawn workers
+    // Спавним воркеры
     let mut handles = Vec::new();
     for worker_id in 0..num_workers {
         let job_rx = job_rx.clone();
         let result_tx = result_tx.clone();
         handles.push(thread::spawn(move || {
             loop {
-                // Lock, receive, unlock — short critical section
+                // Блокировка, получение, разблокировка — короткая критическая секция
                 let job = {
                     let rx = job_rx.lock().unwrap();
-                    rx.recv() // Blocks until a job or channel closes
+                    rx.recv() // Блокирует поток до появления задачи или закрытия канала
                 };
                 match job {
                     Ok(job) => {
-                        let output = format!("processed '{}' by worker {worker_id}", job.data);
+                        let output = format!("обработано '{}' воркером {worker_id}", job.data);
                         result_tx.send(JobResult {
                             job_id: job.id,
                             output,
                             worker_id,
                         }).unwrap();
                     }
-                    Err(_) => break, // Channel closed — exit
+                    Err(_) => break, // Канал закрыт — выходим из цикла
                 }
             }
         }));
     }
-    drop(result_tx); // Drop our copy so result channel closes when workers finish
+    drop(result_tx); // Сбрасываем нашу копию, чтобы канал результатов закрылся, когда воркеры закончат работу
 
-    // Dispatch jobs
+    // Распределяем задачи
     let num_jobs = jobs.len();
     for job in jobs {
         job_tx.send(job).unwrap();
     }
-    drop(job_tx); // Close the job channel — workers will exit after draining
+    drop(job_tx); // Закрываем канал задач — воркеры завершат работу после обработки оставшихся задач
 
-    // Collect results
+    // Собираем результаты
     let mut results = Vec::new();
     for result in result_rx {
         results.push(result);
@@ -233,12 +233,12 @@ fn main() {
 
 ---
 
-### Exercise 4: Higher-Order Combinator Pipeline ★★ (~25 min)
+### Упражнение 4: конвейер комбинаторов высшего порядка ★★ (~25 мин)
 
-Create a `Pipeline` struct that chains transformations. It should support `.pipe(f)` to add a transformation and `.execute(input)` to run the full chain.
+Создайте структуру `Pipeline`, которая объединяет преобразования в цепочку. Она должна поддерживать метод `.pipe(f)` для добавления преобразования и `.execute(input)` для запуска всей цепочки.
 
 <details>
-<summary>🔑 Solution</summary>
+<summary>🔑 Решение</summary>
 
 ```rust
 struct Pipeline<T> {
@@ -269,7 +269,7 @@ fn main() {
 
     println!("{result}"); // >>> HELLO WORLD <<<
 
-    // Numeric pipeline:
+    // Числовой конвейер:
     let result = Pipeline::new()
         .pipe(|x: i32| x * 2)
         .pipe(|x| x + 10)
@@ -280,39 +280,39 @@ fn main() {
 }
 ```
 
-**Bonus**: Generic pipeline that changes type between stages would use a different design — each `.pipe()` returns a `Pipeline` with a different output type (this requires more advanced generic plumbing).
+**Бонус**: обобщенный конвейер, который изменяет тип данных между этапами, требовал бы другой конструкции — в ней каждый вызов `.pipe()` возвращал бы `Pipeline` с новым типом выходных данных (это требует более сложной работы с обобщениями).
 
 </details>
 
 ---
 
-### Exercise 5: Error Hierarchy with thiserror ★★ (~30 min)
+### Упражнение 5: иерархия ошибок с помощью thiserror ★★ (~30 мин)
 
-Design an error type hierarchy for a file-processing application that can fail during I/O, parsing (JSON and CSV), and validation. Use `thiserror` and demonstrate `?` propagation.
+Спроектируйте иерархию типов ошибок для приложения обработки файлов, в котором возможны сбои при вводе-выводе (I/O), парсинге (JSON и CSV) и валидации. Используйте библиотеку `thiserror` и продемонстрируйте распространение ошибок с помощью оператора `?`.
 
 <details>
-<summary>🔑 Solution</summary>
+<summary>🔑 Решение</summary>
 
 ```rust,ignore
 use thiserror::Error;
 
 #[derive(Error, Debug)]
 pub enum AppError {
-    #[error("I/O error: {0}")]
+    #[error("ошибка ввода-вывода (I/O): {0}")]
     Io(#[from] std::io::Error),
 
-    #[error("JSON parse error: {0}")]
+    #[error("ошибка парсинга JSON: {0}")]
     Json(#[from] serde_json::Error),
 
-    #[error("CSV error at line {line}: {message}")]
+    #[error("ошибка CSV на строке {line}: {message}")]
     Csv { line: usize, message: String },
 
-    #[error("validation error: {field} — {reason}")]
+    #[error("ошибка валидации: {field} — {reason}")]
     Validation { field: String, reason: String },
 }
 
 fn read_file(path: &str) -> Result<String, AppError> {
-    Ok(std::fs::read_to_string(path)?) // io::Error → AppError::Io via #[from]
+    Ok(std::fs::read_to_string(path)?) // io::Error → AppError::Io через #[from]
 }
 
 fn parse_json(content: &str) -> Result<serde_json::Value, AppError> {
@@ -324,13 +324,13 @@ fn validate_name(value: &serde_json::Value) -> Result<String, AppError> {
         .and_then(|v| v.as_str())
         .ok_or_else(|| AppError::Validation {
             field: "name".into(),
-            reason: "must be a non-null string".into(),
+            reason: "должно быть ненулевой строкой".into(),
         })?;
 
     if name.is_empty() {
         return Err(AppError::Validation {
             field: "name".into(),
-            reason: "must not be empty".into(),
+            reason: "не должно быть пустым".into(),
         });
     }
 
@@ -356,12 +356,12 @@ fn main() {
 
 ---
 
-### Exercise 6: Generic Trait with Associated Types ★★★ (~40 min)
+### Упражнение 6: обобщенный типаж с ассоциированными типами ★★★ (~40 мин)
 
-Design a `Repository<T>` trait with associated `Error` and `Id` types. Implement it for an in-memory store and demonstrate compile-time type safety.
+Спроектируйте типаж `Repository<T>` с ассоциированными типами `Error` и `Id`. Реализуйте его для хранилища в оперативной памяти (in-memory store) и продемонстрируйте типобезопасность на этапе компиляции.
 
 <details>
-<summary>🔑 Solution</summary>
+<summary>🔑 Решение</summary>
 
 ```rust
 use std::collections::HashMap;
@@ -393,7 +393,7 @@ impl InMemoryUserRepo {
     }
 }
 
-// Error type is Infallible — in-memory ops never fail
+// Тип ошибки — Infallible (операции в памяти никогда не завершаются ошибкой)
 impl Repository for InMemoryUserRepo {
     type Item = User;
     type Id = u64;
@@ -415,7 +415,7 @@ impl Repository for InMemoryUserRepo {
     }
 }
 
-// Generic function works with ANY repository:
+// Обобщенная функция работает с ЛЮБЫМ репозиторием:
 fn create_and_fetch<R: Repository>(repo: &mut R, item: R::Item) -> Result<(), R::Error>
 where
     R::Item: std::fmt::Debug,
@@ -441,20 +441,20 @@ fn main() {
 
 ---
 
-### Exercise 7: Safe Wrapper around Unsafe (Ch11) ★★★ (~45 min)
+### Упражнение 7: безопасная обертка над Unsafe (Ch11) ★★★ (~45 мин)
 
-Write a `FixedVec<T, const N: usize>` — a fixed-capacity, stack-allocated vector.
-Requirements:
-- `push(&mut self, value: T) -> Result<(), T>` returns `Err(value)` when full
-- `pop(&mut self) -> Option<T>` returns and removes the last element
-- `as_slice(&self) -> &[T]` borrows initialized elements
-- All public methods must be safe; all unsafe must be encapsulated with `SAFETY:` comments
-- `Drop` must clean up initialized elements
+Напишите структуру `FixedVec<T, const N: usize>`, представляющую собой стек-аллоцированный вектор фиксированной емкости.
+Требования:
+- Метод `push(&mut self, value: T) -> Result<(), T>` возвращает `Err(value)`, если вектор заполнен
+- Метод `pop(&mut self) -> Option<T>` возвращает и удаляет последний элемент
+- Метод `as_slice(&self) -> &[T]` заимствует инициализированные элементы
+- Все публичные методы должны быть безопасными; любой блок `unsafe` должен быть задокументирован комментариями `SAFETY:`
+- Реализация `Drop` должна корректно очищать инициализированные элементы
 
-**Hint**: Use `MaybeUninit<T>` and `[const { MaybeUninit::uninit() }; N]`.
+**Подсказка**: Используйте `MaybeUninit<T>` и `[const { MaybeUninit::uninit() }; N]`.
 
 <details>
-<summary>🔑 Solution</summary>
+<summary>🔑 Решение</summary>
 
 ```rust
 use std::mem::MaybeUninit;
@@ -474,7 +474,7 @@ impl<T, const N: usize> FixedVec<T, N> {
 
     pub fn push(&mut self, value: T) -> Result<(), T> {
         if self.len >= N { return Err(value); }
-        // SAFETY: len < N, so data[len] is within bounds.
+        // SAFETY: len < N, поэтому data[len] находится в границах массива.
         self.data[self.len] = MaybeUninit::new(value);
         self.len += 1;
         Ok(())
@@ -483,13 +483,13 @@ impl<T, const N: usize> FixedVec<T, N> {
     pub fn pop(&mut self) -> Option<T> {
         if self.len == 0 { return None; }
         self.len -= 1;
-        // SAFETY: data[len] was initialized (len was > 0 before decrement).
+        // SAFETY: элемент data[len] был инициализирован (len был > 0 до декремента).
         Some(unsafe { self.data[self.len].assume_init_read() })
     }
 
     pub fn as_slice(&self) -> &[T] {
-        // SAFETY: data[0..len] are all initialized, and MaybeUninit<T>
-        // has the same layout as T.
+        // SAFETY: все элементы в диапазоне data[0..len] инициализированы, а MaybeUninit<T>
+        // имеет такое же представление в памяти, как и T.
         unsafe { std::slice::from_raw_parts(self.data.as_ptr() as *const T, self.len) }
     }
 
@@ -499,7 +499,7 @@ impl<T, const N: usize> FixedVec<T, N> {
 
 impl<T, const N: usize> Drop for FixedVec<T, N> {
     fn drop(&mut self) {
-        // SAFETY: data[0..len] are initialized — drop each one.
+        // SAFETY: элементы data[0..len] инициализированы — сбрасываем каждый из них.
         for i in 0..self.len {
             unsafe { self.data[i].assume_init_drop(); }
         }
@@ -513,7 +513,7 @@ fn main() {
     assert_eq!(v.as_slice(), &["hello", "world"]);
     assert_eq!(v.pop(), Some("world".into()));
     assert_eq!(v.len(), 1);
-    // Drop cleans up remaining "hello"
+    // Drop очищает оставшуюся строку "hello"
 }
 ```
 
@@ -521,9 +521,9 @@ fn main() {
 
 ---
 
-### Exercise 8: Declarative Macro — `map!` (Ch12) ★ (~15 min)
+### Упражнение 8: декларативный макрос — `map!` (Ch12) ★ (~15 мин)
 
-Write a `map!` macro that creates a `HashMap` from key-value pairs, similar to `vec![]`:
+Напишите макрос `map!`, создающий карту `HashMap` из пар «ключ-значение» аналогично макросу `vec![]`:
 
 ```rust
 let m = map! {
@@ -534,21 +534,21 @@ assert_eq!(m.get("host"), Some(&"localhost"));
 assert_eq!(m.len(), 2);
 ```
 
-Requirements:
-- Support trailing comma
-- Support empty invocation `map!{}`
-- Work with any types that implement `Into<K>` and `Into<V>` for maximum flexibility
+Требования:
+- Поддержка висящей запятой (trailing comma)
+- Поддержка пустого вызова `map!{}`
+- Совместимость с любыми типами, реализующими `Into<K>` and `Into<V>` для максимальной гибкости
 
 <details>
-<summary>🔑 Solution</summary>
+<summary>🔑 Решение</summary>
 
 ```rust
 macro_rules! map {
-    // Empty case
+    // Случай пустого макроса
     () => {
         std::collections::HashMap::new()
     };
-    // One or more key => value pairs (trailing comma optional)
+    // Одна или более пар ключ => значение (висящая запятая опциональна)
     ( $( $key:expr => $val:expr ),+ $(,)? ) => {{
         let mut m = std::collections::HashMap::new();
         $( m.insert($key, $val); )+
@@ -557,7 +557,7 @@ macro_rules! map {
 }
 
 fn main() {
-    // Basic usage:
+    // Базовое использование:
     let config = map! {
         "host" => "localhost",
         "port" => "8080",
@@ -566,11 +566,11 @@ fn main() {
     assert_eq!(config.len(), 3);
     assert_eq!(config["host"], "localhost");
 
-    // Empty map:
+    // Пустая карта:
     let empty: std::collections::HashMap<String, String> = map!();
     assert!(empty.is_empty());
 
-    // Different types:
+    // Разные типы:
     let scores = map! {
         1 => 100,
         2 => 200,
@@ -583,12 +583,12 @@ fn main() {
 
 ---
 
-### Exercise 9: Custom serde Deserialization (Ch10) ★★★ (~45 min)
+### Упражнение 9: кастомная десериализация в serde (Ch10) ★★★ (~45 мин)
 
-Design a `Duration` wrapper that deserializes from human-readable strings like `"30s"`, `"5m"`, `"2h"` using a custom serde deserializer. The struct should also serialize back to the same format.
+Разработайте структуру-обертку `Duration`, которая десериализуется из удобочитаемых строк вида `"30s"`, `"5m"`, `"2h"` с помощью кастомного десериализатора `serde`. Данная структура также должна поддерживать обратную сериализацию в тот же строковый формат.
 
 <details>
-<summary>🔑 Solution</summary>
+<summary>🔑 Решение</summary>
 
 ```rust,ignore
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
@@ -600,20 +600,20 @@ struct HumanDuration(std::time::Duration);
 impl HumanDuration {
     fn from_str(s: &str) -> Result<Self, String> {
         let s = s.trim();
-        if s.is_empty() { return Err("empty duration string".into()); }
+        if s.is_empty() { return Err("пустая строка длительности".into()); }
 
         let (num_str, suffix) = s.split_at(
             s.find(|c: char| !c.is_ascii_digit()).unwrap_or(s.len())
         );
         let value: u64 = num_str.parse()
-            .map_err(|_| format!("invalid number: {num_str}"))?;
+            .map_err(|_| format!("неверное число: {num_str}"))?;
 
         let duration = match suffix {
             "s" | "sec"  => std::time::Duration::from_secs(value),
             "m" | "min"  => std::time::Duration::from_secs(value * 60),
             "h" | "hr"   => std::time::Duration::from_secs(value * 3600),
             "ms"         => std::time::Duration::from_millis(value),
-            other        => return Err(format!("unknown suffix: {other}")),
+            other        => return Err(format!("неизвестный суффикс: {other}")),
         };
         Ok(HumanDuration(duration))
     }
@@ -660,7 +660,7 @@ fn main() {
     assert_eq!(config.timeout.0, std::time::Duration::from_secs(30));
     assert_eq!(config.retry_interval.0, std::time::Duration::from_secs(300));
 
-    // Round-trips correctly:
+    // Корректно сериализуется обратно (round-trip):
     let serialized = serde_json::to_string(&config).unwrap();
     assert!(serialized.contains("30s"));
     assert!(serialized.contains("5m"));
@@ -670,28 +670,21 @@ fn main() {
 
 </details>
 
-### Exercise 10 — Concurrent Fetcher with Timeout ★★ (~25 min)
+### Упражнение 10 — конкурентный загрузчик с таймаутом ★★ (~25 мин)
 
-Write an async function `fetch_all` that spawns three `tokio::spawn` tasks, each
-simulating a network call with `tokio::time::sleep`. Join all three with
-`tokio::try_join!` wrapped in `tokio::time::timeout(Duration::from_secs(5), ...)`.
-Return `Result<Vec<String>, ...>` or an error if any task fails or the deadline
-expires.
+Напишите асинхронную функцию `fetch_all`, запускающую три задачи через `tokio::spawn`, каждая из которых имитирует сетевой запрос с помощью `tokio::time::sleep`. Объедините выполнение всех трех задач с помощью `tokio::try_join!`, обернутого в `tokio::time::timeout(Duration::from_secs(5), ...)`. Метод должен возвращать `Result<Vec<String>, ...>` или ошибку, если какая-либо задача завершилась сбоем либо истек срок ожидания.
 
-**Learning goals**: `tokio::spawn`, `try_join!`, `timeout`, error propagation
-across task boundaries.
+**Цели обучения**: изучение `tokio::spawn`, `try_join!`, `timeout`, распространение ошибок через границы задач.
 
 <details>
-<summary>Hint</summary>
+<summary>Подсказка</summary>
 
-Each spawned task returns `Result<String, _>`. `try_join!` unwraps all three.
-Wrap the whole `try_join!` in `timeout()` — the `Elapsed` error means you hit the
-deadline.
+Каждая запущенная задача возвращает `Result<String, _>`. Макрос `try_join!` распаковывает все три результата. Оберните весь `try_join!` в вызов `timeout()` — ошибка `Elapsed` будет означать достижение крайнего срока времени ожидания.
 
 </details>
 
 <details>
-<summary>Solution</summary>
+<summary>Решение</summary>
 
 ```rust,ignore
 use tokio::time::{sleep, timeout, Duration};
@@ -710,9 +703,9 @@ async fn fetch_all() -> Result<Vec<String>, Box<dyn std::error::Error>> {
         let h3 = tokio::spawn(fake_fetch("svc-c", 150));
         tokio::try_join!(h1, h2, h3)
     })
-    .await??; // first ? = timeout, second ? = join
+    .await??; // первый ? = timeout, второй ? = join
 
-    Ok(vec![a?, b?, c?]) // unwrap inner Results
+    Ok(vec![a?, b?, c?]) // распаковываем внутренние Results
 }
 
 #[tokio::main]
@@ -726,48 +719,46 @@ async fn main() {
 
 </details>
 
-### Exercise 11 — Async Channel Pipeline ★★★ (~40 min)
+### Упражнение 11 — асинхронный конвейер на каналах ★★★ (~40 мин)
 
-Build a producer → transformer → consumer pipeline using `tokio::sync::mpsc`:
+Постройте конвейер производитель → преобразователь → потребитель с использованием `tokio::sync::mpsc`:
 
-1. **Producer**: sends integers 1..=20 into channel A (capacity 4).
-2. **Transformer**: reads from channel A, squares each value, sends into channel B.
-3. **Consumer**: reads from channel B, collects into a `Vec<u64>`, returns it.
+1. **Производитель (Producer)**: отправляет целые числа от 1 до 20 в канал А (емкость 4).
+2. **Преобразователь (Transformer)**: читает данные из канала А, возводит каждое значение в квадрат и отправляет результат в канал Б.
+3. **Потребитель (Consumer)**: читает данные из канала Б, собирает их в вектор `Vec<u64>` и возвращает его.
 
-All three stages run as concurrent `tokio::spawn` tasks. Use bounded channels to
-demonstrate back-pressure. Assert the final vec equals `[1, 4, 9, ..., 400]`.
+Все три этапа должны выполняться как конкурентные задачи через `tokio::spawn`. Используйте ограниченные (bounded) каналы для демонстрации механизма противодавления (back-pressure). Убедитесь с помощью `assert_eq!`, что итоговый вектор равен `[1, 4, 9, ..., 400]`.
 
-**Learning goals**: `mpsc::channel`, bounded back-pressure, `tokio::spawn` with
-move closures, graceful shutdown via channel close.
+**Цели обучения**: работа с `mpsc::channel`, противодавление в ограниченных каналах, `tokio::spawn` с замыканиями `move`, корректное завершение работы через закрытие канала.
 
 <details>
-<summary>Solution</summary>
+<summary>Решение</summary>
 
 ```rust,ignore
 use tokio::sync::mpsc;
 
 #[tokio::main]
 async fn main() {
-    let (tx_a, mut rx_a) = mpsc::channel::<u64>(4); // bounded — back-pressure
+    let (tx_a, mut rx_a) = mpsc::channel::<u64>(4); // ограниченный канал — противодавление
     let (tx_b, mut rx_b) = mpsc::channel::<u64>(4);
 
-    // Producer
+    // Производитель
     let producer = tokio::spawn(async move {
         for i in 1..=20u64 {
             tx_a.send(i).await.unwrap();
         }
-        // tx_a dropped here → channel A closes
+        // tx_a сбрасывается здесь → канал A закрывается
     });
 
-    // Transformer
+    // Преобразователь
     let transformer = tokio::spawn(async move {
         while let Some(val) = rx_a.recv().await {
             tx_b.send(val * val).await.unwrap();
         }
-        // tx_b dropped here → channel B closes
+        // tx_b сбрасывается здесь → канал B закрывается
     });
 
-    // Consumer
+    // Потребитель
     let consumer = tokio::spawn(async move {
         let mut results = Vec::new();
         while let Some(val) = rx_b.recv().await {
@@ -789,4 +780,3 @@ async fn main() {
 </details>
 
 ***
-
