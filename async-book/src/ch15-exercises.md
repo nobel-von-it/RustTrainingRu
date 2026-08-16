@@ -1,17 +1,17 @@
-## Exercises
+# 15. Упражнения
 
-### Exercise 1: Async Echo Server
+### Упражнение 1: Асинхронный эхо-сервер
 
-Build a TCP echo server that handles multiple clients concurrently.
+Напишите TCP эхо-сервер, который обрабатывает подключения множества клиентов конкурентно.
 
-**Requirements**:
-- Listen on `127.0.0.1:8080`
-- Accept connections and echo back each line
-- Handle client disconnections gracefully
-- Print a log when clients connect/disconnect
+**Требования**:
+- Слушать порт `127.0.0.1:8080`
+- Принимать входящие соединения и отправлять обратно каждую полученную строку
+- Корректно обрабатывать отключения клиентов
+- Логировать моменты подключения и отключения клиентов
 
 <details>
-<summary>🔑 Solution</summary>
+<summary>🔑 Решение</summary>
 
 ```rust
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
@@ -20,11 +20,11 @@ use tokio::net::TcpListener;
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let listener = TcpListener::bind("127.0.0.1:8080").await?;
-    println!("Echo server listening on :8080");
+    println!("Эхо-сервер запущен на :8080");
 
     loop {
         let (socket, addr) = listener.accept().await?;
-        println!("[{addr}] Connected");
+        println!("[{addr}] Подключен");
 
         tokio::spawn(async move {
             let (reader, mut writer) = socket.into_split();
@@ -35,18 +35,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 line.clear();
                 match reader.read_line(&mut line).await {
                     Ok(0) => {
-                        println!("[{addr}] Disconnected");
+                        println!("[{addr}] Отключен");
                         break;
                     }
                     Ok(_) => {
-                        print!("[{addr}] Echo: {line}");
+                        print!("[{addr}] Эхо: {line}");
                         if writer.write_all(line.as_bytes()).await.is_err() {
-                            println!("[{addr}] Write error, disconnecting");
+                            println!("[{addr}] Ошибка записи, отключение");
                             break;
                         }
                     }
                     Err(e) => {
-                        eprintln!("[{addr}] Read error: {e}");
+                        eprintln!("[{addr}] Ошибка чтения: {e}");
                         break;
                     }
                 }
@@ -60,24 +60,24 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 ---
 
-### Exercise 2: Concurrent URL Fetcher with Rate Limiting
+### Упражнение 2: Конкурентный загрузчик URL-адресов с ограничением частоты
 
-Fetch a list of URLs concurrently, with at most 5 concurrent requests.
+Скачайте список URL-адресов конкурентно, при этом одновременно должно выполняться не более 5 запросов.
 
 <details>
-<summary>🔑 Solution</summary>
+<summary>🔑 Решение</summary>
 
 ```rust
 use futures::stream::{self, StreamExt};
 use tokio::time::{sleep, Duration};
 
 async fn fetch_urls(urls: Vec<String>) -> Vec<Result<String, String>> {
-    // buffer_unordered(5) ensures at most 5 futures are polled
-    // concurrently — no separate Semaphore needed here.
+    // buffer_unordered(5) гарантирует, что одновременно будут опрашиваться не более 5 фьючеров
+    // дополнительный семафор здесь не требуется.
     let results: Vec<_> = stream::iter(urls)
         .map(|url| {
             async move {
-                println!("Fetching: {url}");
+                println!("Загрузка: {url}");
 
                 match reqwest::get(&url).await {
                     Ok(resp) => match resp.text().await {
@@ -88,31 +88,31 @@ async fn fetch_urls(urls: Vec<String>) -> Vec<Result<String, String>> {
                 }
             }
         })
-        .buffer_unordered(5) // ← This alone limits concurrency to 5
+        .buffer_unordered(5) // ← Один лишь этот вызов ограничивает конкурентность числом 5
         .collect()
         .await;
 
     results
 }
 
-// NOTE: Use Semaphore when you need to limit concurrency across
-// independently spawned tasks (tokio::spawn). Use buffer_unordered
-// when processing a stream. Don't combine both for the same limit.
+// ПРИМЕЧАНИЕ: Используйте Semaphore, когда нужно ограничить уровень конкурентности между
+// независимо запущенными задачами (tokio::spawn). Используйте buffer_unordered
+// при обработке стрима. Не комбинируйте оба подхода для одного и того же лимита.
 ```
 
 </details>
 
 ---
 
-### Exercise 3: Graceful Shutdown with Worker Pool
+### Упражнение 3: Плавное завершение работы пула рабочих задач
 
-Build a task processor with:
-- A channel-based work queue
-- N worker tasks consuming from the queue
-- Graceful shutdown on Ctrl+C: stop accepting, finish in-flight work
+Постройте обработчик задач, содержащий:
+- Очередь задач на основе каналов
+- N рабочих задач (workers), вычитывающих элементы из очереди
+- Плавное завершение работы при нажатии Ctrl+C: прекратить прием новых задач, завершить уже взятые в обработку
 
 <details>
-<summary>🔑 Solution</summary>
+<summary>🔑 Решение</summary>
 
 ```rust
 use tokio::sync::{mpsc, watch};
@@ -128,7 +128,7 @@ async fn main() {
     let (work_tx, work_rx) = mpsc::channel::<WorkItem>(100);
     let (shutdown_tx, shutdown_rx) = watch::channel(false);
 
-    // Spawn 4 workers
+    // Запускаем 4 рабочих
     let mut worker_handles = Vec::new();
     let work_rx = std::sync::Arc::new(tokio::sync::Mutex::new(work_rx));
 
@@ -150,7 +150,7 @@ async fn main() {
                 match item {
                     Some(work) => {
                         println!("Worker {id}: processing item {}", work.id);
-                        sleep(Duration::from_millis(200)).await; // Simulate work
+                        sleep(Duration::from_millis(200)).await; // Имитируем работу
                         println!("Worker {id}: done with item {}", work.id);
                     }
                     None => {
@@ -163,7 +163,7 @@ async fn main() {
         worker_handles.push(handle);
     }
 
-    // Producer: submit some work
+    // Производитель: отправляем несколько задач
     let producer = tokio::spawn(async move {
         for i in 0..20 {
             let _ = work_tx.send(WorkItem {
@@ -174,17 +174,17 @@ async fn main() {
         }
     });
 
-    // Wait for Ctrl+C
+    // Ждем нажатия Ctrl+C
     tokio::signal::ctrl_c().await.unwrap();
-    println!("\nShutdown signal received!");
+    println!("\nПолучен сигнал завершения работы!");
     shutdown_tx.send(true).unwrap();
-    producer.abort(); // Cancel the producer task
+    producer.abort(); // Отменяем задачу-производитель
 
-    // Wait for workers to finish
+    // Ждем завершения рабочих задач
     for handle in worker_handles {
         let _ = handle.await;
     }
-    println!("All workers shut down. Goodbye!");
+    println!("Все рабочие завершили работу. До свидания!");
 }
 ```
 
@@ -192,14 +192,14 @@ async fn main() {
 
 ---
 
-### Exercise 4: Build a Simple Async Mutex from Scratch
+### Упражнение 4: Создание простого асинхронного мьютекса с нуля
 
-Implement an async-aware mutex using channels (without using `tokio::sync::Mutex`).
+Реализуйте асинхронный мьютекс, используя каналы/семафоры (без использования готового `tokio::sync::Mutex`).
 
-*Hint*: Use a `tokio::sync::Semaphore` with 1 permit to serialize access.
+*Hint*: Используйте `tokio::sync::Semaphore` с 1 разрешением (permit) для сериализации доступа.
 
 <details>
-<summary>🔑 Solution</summary>
+<summary>🔑 Решение</summary>
 
 ```rust
 use std::cell::UnsafeCell;
@@ -211,13 +211,13 @@ pub struct SimpleAsyncMutex<T> {
     semaphore: Arc<Semaphore>,
 }
 
-// SAFETY: Access to T is serialized by the semaphore (max 1 permit).
+// SAFETY: Доступ к T сериализован семафором (максимум 1 разрешение).
 unsafe impl<T: Send> Send for SimpleAsyncMutex<T> {}
 unsafe impl<T: Send> Sync for SimpleAsyncMutex<T> {}
 
 pub struct SimpleGuard<T> {
     data: Arc<UnsafeCell<T>>,
-    _permit: OwnedSemaphorePermit, // Dropped on guard drop → releases lock
+    _permit: OwnedSemaphorePermit, // Удаляется при сбросе гарда → освобождает блокировку
 }
 
 impl<T> SimpleAsyncMutex<T> {
@@ -240,53 +240,49 @@ impl<T> SimpleAsyncMutex<T> {
 impl<T> std::ops::Deref for SimpleGuard<T> {
     type Target = T;
     fn deref(&self) -> &T {
-        // SAFETY: We hold the only semaphore permit, so no other
-        // SimpleGuard exists → exclusive access is guaranteed.
+        // SAFETY: Мы удерживаем единственное разрешение семафора, поэтому другие
+        // SimpleGuard не существуют → гарантирован эксклюзивный доступ.
         unsafe { &*self.data.get() }
     }
 }
 
 impl<T> std::ops::DerefMut for SimpleGuard<T> {
     fn deref_mut(&mut self) -> &mut T {
-        // SAFETY: Same reasoning — single permit guarantees exclusivity.
+        // SAFETY: Та же логика — одно разрешение гарантирует эксклюзивность.
         unsafe { &mut *self.data.get() }
     }
 }
 
-// When SimpleGuard is dropped, _permit is dropped,
-// which releases the semaphore permit — another lock() can proceed.
+// При сбросе SimpleGuard гард _permit уничтожается, освобождая разрешение семафора —
+// другой вызов lock() может быть выполнен.
 
-// Usage:
+// Использование:
 // let mutex = SimpleAsyncMutex::new(vec![1, 2, 3]);
 // {
 //     let mut guard = mutex.lock().await;
 //     guard.push(4);
-// } // permit released here
+// } // разрешение освобождается здесь
 ```
 
-**Key takeaway**: Async mutexes are typically built on top of semaphores. The semaphore provides the async wait mechanism — when locked, `acquire()` suspends the task until the permit is released. This is exactly how `tokio::sync::Mutex` works internally.
+**Ключевой вывод**: Асинхронные мьютексы обычно строятся поверх семафоров. Семафор предоставляет асинхронный механизм ожидания: если блокировка удерживается, вызов `acquire()` приостанавливает задачу до тех пор, пока разрешение не будет освобождено. Именно так устроен `tokio::sync::Mutex` внутри.
 
-> **Why `UnsafeCell` and not `std::sync::Mutex`?** A previous version of this
-> exercise used `Arc<Mutex<T>>` with `Deref`/`DerefMut` calling `.lock().unwrap()`.
-> That doesn't compile — the returned `&T` borrows from a temporary `MutexGuard`
-> that's dropped immediately. `UnsafeCell` avoids the intermediate guard, and the
-> semaphore-based serialization makes the `unsafe` sound.
+> **Почему `UnsafeCell`, а не `std::sync::Mutex`?** Предыдущая версия этого упражнения использовала `Arc<Mutex<T>>`, где `Deref`/`DerefMut` вызывали `.lock().unwrap()`. Это не скомпилируется: возвращаемая ссылка `&T` заимствуется из временного `MutexGuard`, который уничтожается сразу же. `UnsafeCell` позволяет избежать промежуточного гарда, а сериализация на базе семафора делает такой `unsafe` корректным.
 
 </details>
 
 ---
 
-### Exercise 5: Stream Pipeline
+### Упражнение 5: Конвейер стрима
 
-Build a data processing pipeline using streams:
-1. Generate numbers 1..=100
-2. Filter to even numbers
-3. Map each to its square
-4. Process 10 at a time concurrently (simulate with sleep)
-5. Collect results
+Постройте конвейер обработки данных с помощью стримов:
+1. Генерировать числа от 1 до 100
+2. Фильтровать только четные числа
+3. Возводить каждое число в квадрат
+4. Обрабатывать по 10 элементов одновременно (симулировать работу через сон)
+5. Собрать результаты
 
 <details>
-<summary>🔑 Solution</summary>
+<summary>🔑 Решение</summary>
 
 ```rust
 use futures::stream::{self, StreamExt};
@@ -295,23 +291,23 @@ use tokio::time::{sleep, Duration};
 #[tokio::main]
 async fn main() {
     let results: Vec<u64> = stream::iter(1u64..=100)
-        // Step 2: Filter evens
+        // Шаг 2: Фильтруем четные
         .filter(|x| futures::future::ready(x % 2 == 0))
-        // Step 3: Square each
+        // Шаг 3: Возводим в квадрат
         .map(|x| x * x)
-        // Step 4: Process concurrently (simulate async work)
+        // Шаг 4: Обрабатываем конкурентно (имитируем асинхронную работу)
         .map(|x| async move {
             sleep(Duration::from_millis(50)).await;
-            println!("Processed: {x}");
+            println!("Обработано: {x}");
             x
         })
-        .buffer_unordered(10) // 10 concurrent
-        // Step 5: Collect
+        .buffer_unordered(10) // по 10 одновременно
+        // Шаг 5: Собираем результаты
         .collect()
         .await;
 
-    println!("Got {} results", results.len());
-    println!("Sum: {}", results.iter().sum::<u64>());
+    println!("Получено {} результатов", results.len());
+    println!("Сумма: {}", results.iter().sum::<u64>());
 }
 ```
 
@@ -319,14 +315,14 @@ async fn main() {
 
 ---
 
-### Exercise 6: Implement Select with Timeout
+### Упражнение 6: Реализация Select с таймаутом
 
-Without using `tokio::select!` or `tokio::time::timeout`, implement a function that races a future against a deadline and returns `Either::Left(result)` or `Either::Right(())` on timeout.
+Без использования макросов `tokio::select!` или `tokio::time::timeout` реализуйте структуру/функцию, которая устраивает гонку фьючера с дедлайном и возвращает `Either::Left(result)` при успехе или `Either::Right(())` при таймауте.
 
-*Hint*: Build on the `Select` combinator from Chapter 6 and the `TimerFuture` from the same chapter.
+*Hint*: Опирайтесь на структуру `Select` из Главы 6 и `TimerFuture` из той же главы.
 
 <details>
-<summary>🔑 Solution</summary>
+<summary>🔑 Решение</summary>
 
 ```rust,ignore
 use std::future::Future;
@@ -341,7 +337,7 @@ pub enum Either<A, B> {
 
 pub struct Timeout<F> {
     future: F,
-    timer: TimerFuture, // From Chapter 6
+    timer: TimerFuture, // Из Главы 6
 }
 
 impl<F: Future + Unpin> Timeout<F> {
@@ -357,12 +353,12 @@ impl<F: Future + Unpin> Future for Timeout<F> {
     type Output = Either<F::Output, ()>;
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        // Check if the main future is done
+        // Проверяем, завершен ли основной фьючер
         if let Poll::Ready(val) = Pin::new(&mut self.future).poll(cx) {
             return Poll::Ready(Either::Left(val));
         }
 
-        // Check if the timer expired
+        // Проверяем, истек ли таймер
         if let Poll::Ready(()) = Pin::new(&mut self.timer).poll(cx) {
             return Poll::Ready(Either::Right(()));
         }
@@ -371,16 +367,14 @@ impl<F: Future + Unpin> Future for Timeout<F> {
     }
 }
 
-// Usage:
+// Использование:
 // match Timeout::new(fetch_data(), Duration::from_secs(5)).await {
-//     Either::Left(data) => println!("Got data: {data}"),
-//     Either::Right(()) => println!("Timed out!"),
+//     Either::Left(data) => println!("Получены данные: {data}"),
+//     Either::Right(()) => println!("Таймаут!"),
 // }
 ```
 
-**Key takeaway**: `select`/`timeout` is just polling two futures and seeing which completes first. The entire async ecosystem is built from this simple primitive: poll, Pending/Ready, Waker.
+**Ключевой вывод**: механизмы `select`/`timeout` представляют собой простой опрос двух фьючеров с отслеживанием того, какой из них завершится первым. Вся асинхронная экосистема построена вокруг этих элементарных примитивов: poll, `Pending`/`Ready` и `Waker`.
 
 </details>
-
-***
-
+```

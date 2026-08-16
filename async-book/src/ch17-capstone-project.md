@@ -1,38 +1,38 @@
-# Capstone Project: Async Chat Server
+# Итоговый проект: Асинхронный чат-сервер
 
-This project integrates patterns from across the book into a single, production-style application. You'll build a **multi-room async chat server** using tokio, channels, streams, graceful shutdown, and proper error handling.
+Этот проект объединяет паттерны из всей книги в единое приложение в продакшен-стиле. Вы создадите **многокомнатный асинхронный чат-сервер** с использованием tokio, каналов (channels), потоков данных (streams), плавного завершения работы (graceful shutdown) и правильной обработки ошибок.
 
-**Estimated time**: 4–6 hours | **Difficulty**: ★★★
+**Оценочное время**: 4–6 часов | **Сложность**: ★★★
 
-> **What you'll practice:**
-> - `tokio::spawn` and the `'static` requirement (Ch 8)
-> - Channels: `mpsc` for messages, `broadcast` for rooms, `watch` for shutdown (Ch 8)
-> - Streams: reading lines from TCP connections (Ch 11)
-> - Common pitfalls: cancellation safety, MutexGuard across `.await` (Ch 12)
-> - Production patterns: graceful shutdown, backpressure (Ch 13)
-> - Async traits for pluggable backends (Ch 10)
+> **Что вы закрепите на практике:**
+> - `tokio::spawn` и требование `'static` (Глава 8)
+> - Каналы: `mpsc` для сообщений, `broadcast` для комнат, `watch` для завершения работы (Глава 8)
+> - Потоки данных (Streams): чтение строк из TCP-соединений (Глава 11)
+> - Распространенные ошибки: безопасность отмены (cancellation safety), `MutexGuard` через `.await` (Глава 12)
+> - Паттерны для продакшена: плавное завершение работы, обратное давление (backpressure) (Глава 13)
+> - Асинхронные трейты для подключаемых бэкендов (Глава 10)
 
-## The Problem
+## Задача
 
-Build a TCP chat server where:
+Создайте TCP-чат-сервер, в котором:
 
-1. **Clients** connect via TCP and join named rooms
-2. **Messages** are broadcast to all clients in the same room
-3. **Commands**: `/join <room>`, `/nick <name>`, `/rooms`, `/quit`
-4. The server shuts down gracefully on Ctrl+C — finishing in-flight messages
+1. **Клиенты** подключаются по TCP и присоединяются к именованным комнатам.
+2. **Сообщения** рассылаются (broadcast) всем клиентам в той же комнате.
+3. **Команды**: `/join <комната>`, `/nick <имя>`, `/rooms`, `/quit`.
+4. Сервер корректно завершает работу (graceful shutdown) по сигналу `Ctrl+C` — завершая обработку отправляемых сообщений.
 
 ```mermaid
 graph LR
-    C1["Client 1<br/>(Alice)"] -->|TCP| SERVER["Chat Server"]
-    C2["Client 2<br/>(Bob)"] -->|TCP| SERVER
-    C3["Client 3<br/>(Carol)"] -->|TCP| SERVER
+    C1["Клиент 1<br/>(Алиса)"] -->|TCP| SERVER["Чат-сервер"]
+    C2["Клиент 2<br/>(Боб)"] -->|TCP| SERVER
+    C3["Клиент 3<br/>(Кэрол)"] -->|TCP| SERVER
 
-    SERVER --> R1["#general<br/>broadcast channel"]
-    SERVER --> R2["#rust<br/>broadcast channel"]
+    SERVER --> R1["#general<br/>канал broadcast"]
+    SERVER --> R2["#rust<br/>канал broadcast"]
 
-    R1 -->|msg| C1
-    R1 -->|msg| C2
-    R2 -->|msg| C3
+    R1 -->|сообщение| C1
+    R1 -->|сообщение| C2
+    R2 -->|сообщение| C3
 
     CTRL["Ctrl+C"] -->|watch| SERVER
 
@@ -42,9 +42,9 @@ graph LR
     style CTRL fill:#fadbd8,stroke:#e74c3c,color:#000
 ```
 
-## Step 1: Basic TCP Accept Loop
+## Шаг 1: Базовый цикл приема TCP-соединений (Accept Loop)
 
-Start with a server that accepts connections and echoes lines back:
+Начните с сервера, который принимает соединения и возвращает обратно (echo) отправленные строки:
 
 ```rust
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
@@ -53,11 +53,11 @@ use tokio::net::TcpListener;
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let listener = TcpListener::bind("127.0.0.1:8080").await?;
-    println!("Chat server listening on :8080");
+    println!("Чат-сервер запущен на порту 8080");
 
     loop {
         let (socket, addr) = listener.accept().await?;
-        println!("[{addr}] Connected");
+        println!("[{addr}] Подключен");
 
         tokio::spawn(async move {
             let (reader, mut writer) = socket.into_split();
@@ -67,23 +67,23 @@ async fn main() -> anyhow::Result<()> {
             loop {
                 line.clear();
                 match reader.read_line(&mut line).await {
-                    Ok(0) | Err(_) => break,
+                    Ok(0) | Err(_) => break, // EOF или ошибка
                     Ok(_) => {
                         let _ = writer.write_all(line.as_bytes()).await;
                     }
                 }
             }
-            println!("[{addr}] Disconnected");
+            println!("[{addr}] Отключен");
         });
     }
 }
 ```
 
-**Your job**: Verify this compiles and works with `telnet localhost 8080`.
+**Ваша задача**: Убедиться, что это компилируется и работает через `telnet localhost 8080`.
 
-## Step 2: Room State with Broadcast Channels
+## Шаг 2: Состояние комнат с каналами Broadcast
 
-Each room is a `broadcast::Sender`. All clients in a room subscribe to receive messages.
+Каждая комната представляет собой `broadcast::Sender`. Все клиенты в комнате подписываются на получение сообщений.
 
 ```rust
 use std::collections::HashMap;
@@ -95,40 +95,40 @@ type RoomMap = Arc<RwLock<HashMap<String, broadcast::Sender<String>>>>;
 fn get_or_create_room(rooms: &mut HashMap<String, broadcast::Sender<String>>, name: &str) -> broadcast::Sender<String> {
     rooms.entry(name.to_string())
         .or_insert_with(|| {
-            let (tx, _) = broadcast::channel(100); // 100-message buffer
+            let (tx, _) = broadcast::channel(100); // Буфер на 100 сообщений
             tx
         })
         .clone()
 }
 ```
 
-**Your job**: Implement room state so that:
-- Clients start in `#general`
-- `/join <room>` switches rooms (unsubscribe from old, subscribe to new)
-- Messages are broadcast to all clients in the sender's current room
+**Ваша задача**: Реализовать состояние комнат так, чтобы:
+- Клиенты начинали в комнате `#general`.
+- `/join <room>` переключал комнаты (отписка от старой, подписка на новую).
+- Сообщения рассылались всем клиентам в текущей комнате отправителя.
 
 <details>
-<summary>💡 Hint — Client task structure</summary>
+<summary>💡 Подсказка — Структура задачи клиента</summary>
 
-Each client task needs two concurrent loops:
-1. **Read from TCP** → parse commands or broadcast to room
-2. **Read from broadcast receiver** → write to TCP
+Каждая задача клиента должна выполнять два конкурентных цикла:
+1. **Чтение из TCP** → разбор команд или отправка сообщений в комнату.
+2. **Чтение из приёмника broadcast (receiver)** → запись в TCP.
 
-Use `tokio::select!` to run both:
+Используйте макрос `tokio::select!` для запуска обоих процессов:
 
 ```rust
 loop {
     tokio::select! {
-        // Client sent us a line
+        // Клиент отправил нам строку
         result = reader.read_line(&mut line) => {
             match result {
                 Ok(0) | Err(_) => break,
                 Ok(_) => {
-                    // Parse command or broadcast message
+                    // Разбор команды или рассылка сообщения
                 }
             }
         }
-        // Room broadcast received
+        // Получено сообщение из комнаты
         result = room_rx.recv() => {
             match result {
                 Ok(msg) => {
@@ -143,42 +143,42 @@ loop {
 
 </details>
 
-## Step 3: Commands
+## Шаг 3: Команды
 
-Implement the command protocol:
+Реализуйте протокол команд:
 
-| Command | Action |
-|---------|--------|
-| `/join <room>` | Leave current room, join new room, announce in both |
-| `/nick <name>` | Change display name |
-| `/rooms` | List all active rooms and member counts |
-| `/quit` | Disconnect gracefully |
-| Anything else | Broadcast as a chat message |
+| Команда | Действие |
+|:---|:---|
+| `/join <комната>` | Покинуть текущую комнату, войти в новую комнату, отправить оповещение в обе |
+| `/nick <имя>` | Изменить отображаемое имя |
+| `/rooms` | Вывести список всех активных комнат и количество участников |
+| `/quit` | Корректно отключиться |
+| Всё остальное | Разослать как сообщение в чат |
 
-**Your job**: Parse commands from the input line. For `/rooms`, you'll need to read from the `RoomMap` — use `RwLock::read()` to avoid blocking other clients.
+**Ваша задача**: Разбирать команды из входящей строки. Для команды `/rooms` вам понадобится прочитать данные из `RoomMap` — используйте `RwLock::read()`, чтобы не блокировать других клиентов.
 
-## Step 4: Graceful Shutdown
+## Шаг 4: Плавное завершение работы (Graceful Shutdown)
 
-Add Ctrl+C handling so the server:
-1. Stops accepting new connections
-2. Sends "Server shutting down..." to all rooms
-3. Waits for in-flight messages to drain
-4. Exits cleanly
+Добавьте обработку `Ctrl+C`, чтобы сервер:
+1. Переставал принимать новые подключения.
+2. Отправлял сообщение "Сервер останавливает работу..." во все комнаты.
+3. Ожидал завершения отправки сообщений, находящихся в процессе обработки.
+4. Чисто завершал работу.
 
 ```rust
 use tokio::sync::watch;
 
 let (shutdown_tx, shutdown_rx) = watch::channel(false);
 
-// In the accept loop:
+// В цикле приема подключений (accept loop):
 loop {
     tokio::select! {
         result = listener.accept() => {
             let (socket, addr) = result?;
-            // spawn client task with shutdown_rx.clone()
+            // спавн задачи клиента с передачей shutdown_rx.clone()
         }
         _ = tokio::signal::ctrl_c() => {
-            println!("Shutdown signal received");
+            println!("Получен сигнал завершения работы");
             shutdown_tx.send(true)?;
             break;
         }
@@ -186,45 +186,45 @@ loop {
 }
 ```
 
-**Your job**: Add `shutdown_rx.changed()` to each client's `select!` loop so clients exit when shutdown is signaled.
+**Ваша задача**: Добавить `shutdown_rx.changed()` в цикл `select!` каждого клиента, чтобы клиенты завершали работу при получении сигнала остановки.
 
-## Step 5: Error Handling and Edge Cases
+## Шаг 5: Обработка ошибок и пограничные случаи
 
-Production-harden the server:
+Подготовьте сервер к реальной эксплуатации (production-hardened):
 
-1. **Lagging receivers**: `broadcast::recv()` returns `RecvError::Lagged(n)` if a slow client misses messages. Handle it gracefully (log + continue, don't crash).
-2. **Nickname validation**: Reject empty or too-long nicknames.
-3. **Backpressure**: The broadcast channel buffer is bounded (100). If a client can't keep up, they get the `Lagged` error.
-4. **Timeout**: Disconnect clients that are idle for >5 minutes.
+1. **Отстающие получатели**: `broadcast::recv()` возвращает `RecvError::Lagged(n)`, если медленный клиент пропускает сообщения. Обработайте это корректно (логируйте и продолжайте работу, не падайте).
+2. **Валидация никнеймов**: Отклоняйте пустые или слишком длинные имена.
+3. **Обратное давление (Backpressure)**: Буфер канала broadcast ограничен (100). Если клиент не успевает читать сообщения, он получит ошибку `Lagged`.
+4. **Таймаут (Timeout)**: Отключайте клиентов, которые бездействуют более 5 минут.
 
 ```rust
 use tokio::time::{timeout, Duration};
 
-// Wrap the read in a timeout:
+// Оберните чтение в таймаут:
 match timeout(Duration::from_secs(300), reader.read_line(&mut line)).await {
-    Ok(Ok(0)) | Ok(Err(_)) | Err(_) => break, // EOF, error, or timeout
-    Ok(Ok(_)) => { /* process line */ }
+    Ok(Ok(0)) | Ok(Err(_)) | Err(_) => break, // EOF, ошибка или таймаут
+    Ok(Ok(_)) => { /* обработка строки */ }
 }
 ```
 
-## Step 6: Integration Test
+## Шаг 6: Интеграционный тест
 
-Write a test that starts the server, connects two clients, and verifies message delivery:
+Напишите тест, который запускает сервер, подключает двух клиентов и проверяет доставку сообщений:
 
 ```rust
 #[tokio::test]
 async fn two_clients_can_chat() {
-    // Start server in background
-    let server = tokio::spawn(run_server("127.0.0.1:0")); // Port 0 = OS picks
+    // Запуск сервера в фоновом режиме
+    let server = tokio::spawn(run_server("127.0.0.1:0")); // Порт 0 = ОС выберет сама
 
-    // Connect two clients
+    // Подключение двух клиентов
     let mut client1 = TcpStream::connect(addr).await.unwrap();
     let mut client2 = TcpStream::connect(addr).await.unwrap();
 
-    // Client 1 sends a message
+    // Клиент 1 отправляет сообщение
     client1.write_all(b"Hello from client 1\n").await.unwrap();
 
-    // Client 2 should receive it
+    // Клиент 2 должен его получить
     let mut buf = vec![0u8; 1024];
     let n = client2.read(&mut buf).await.unwrap();
     let msg = String::from_utf8_lossy(&buf[..n]);
@@ -232,25 +232,25 @@ async fn two_clients_can_chat() {
 }
 ```
 
-## Evaluation Criteria
+## Критерии оценки
 
-| Criterion | Target |
-|-----------|--------|
-| Concurrency | Multiple clients in multiple rooms, no blocking |
-| Correctness | Messages only go to clients in the same room |
-| Graceful shutdown | Ctrl+C drains messages and exits cleanly |
-| Error handling | Lagged receivers, disconnections, timeouts handled |
-| Code organization | Clean separation: accept loop, client task, room state |
-| Testing | At least 2 integration tests |
+| Критерий | Цель |
+| :--- | :--- |
+| Конкурентность | Несколько клиентов в разных комнатах без взаимных блокировок |
+| Корректность | Сообщения доставляются только клиентам в той же комнате |
+| Плавное завершение | Ctrl+C завершает доставку сообщений и безопасно останавливает сервер |
+| Обработка ошибок | Корректно обрабатываются отстающие получатели, отключения и таймауты |
+| Организация кода | Четкое разделение: цикл приема, задача клиента, состояние комнат |
+| Тестирование | Как минимум 2 интеграционных теста |
 
-## Extension Ideas
+## Идеи для расширения
 
-Once the basic chat server works, try these enhancements:
+Как только базовый чат-сервер заработает, попробуйте реализовать следующие улучшения:
 
-1. **Persistent history**: Store last N messages per room; replay to new joiners
-2. **WebSocket support**: Accept both TCP and WebSocket clients using `tokio-tungstenite`
-3. **Rate limiting**: Use `tokio::time::Interval` to limit messages per client per second
-4. **Metrics**: Track connected clients, messages/sec, room count via `prometheus` crate
-5. **TLS**: Add `tokio-rustls` for encrypted connections
+1. **История сообщений**: Сохраняйте последние N сообщений в каждой комнате и отправляйте их новым участникам.
+2. **Поддержка WebSocket**: Принимайте как TCP, так и WebSocket клиентов с помощью библиотеки `tokio-tungstenite`.
+3. **Ограничение скорости (Rate limiting)**: Используйте `tokio::time::Interval` для ограничения количества сообщений от одного клиента в секунду.
+4. **Метрики**: Отслеживайте количество подключенных клиентов, сообщений в секунду и количество комнат с помощью библиотеки `prometheus`.
+5. **TLS**: Добавьте шифрование соединений с помощью `tokio-rustls`.
 
 ***

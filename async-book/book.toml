@@ -1,7 +1,7 @@
 [book]
-title = "Async Rust: From Futures to Production"
+title = "Асинхронный Rust: от Futures до продакшена"
 authors = ["Rust Training Team"]
-language = "en"
+language = "ru"
 src = "src"
 
 [build]

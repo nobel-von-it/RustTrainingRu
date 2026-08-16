@@ -1,34 +1,34 @@
-# 7. Executors and Runtimes 🟡
+# 7. Исполнители и среды выполнения 🟡
 
-> **What you'll learn:**
-> - What an executor does: poll + sleep efficiently
-> - The six major runtimes: mio, io_uring, tokio, async-std, smol, embassy
-> - A decision tree for choosing the right runtime
-> - Why runtime-agnostic library design matters
+> **Чему вы научитесь:**
+> - Чем занимается исполнитель: опросом и эффективным сном
+> - Шести основным средам выполнения: mio, io_uring, tokio, async-std, smol, embassy
+> - Дереву решений для выбора подходящего рантайма
+> - Почему важно проектировать библиотеки независимыми от конкретной среды выполнения
 
-## What an Executor Does
+## Чем занимается исполнитель
 
-An executor has two jobs:
-1. **Poll futures** when they're ready to make progress
-2. **Sleep efficiently** when no futures are ready (using OS I/O notification APIs)
+У исполнителя две задачи:
+1. **Опрашивать фьючеры** (poll), когда они готовы продолжить выполнение.
+2. **Эффективно спать**, когда нет фьючеров, готовых к работе (используя системные API уведомлений о вводе-выводе).
 
 ```mermaid
 graph TB
-    subgraph Executor["Executor (e.g., tokio)"]
-        QUEUE["Task Queue"]
-        POLLER["I/O Poller<br/>(epoll/kqueue/io_uring)"]
-        THREADS["Worker Thread Pool"]
+    subgraph Executor["Исполнитель (напр., tokio)"]
+        QUEUE["Очередь задач"]
+        POLLER["Опросчик ввода-вывода (I/O Poller)<br/>(epoll/kqueue/io_uring)"]
+        THREADS["Пул рабочих потоков"]
     end
 
-    subgraph Tasks
-        T1["Task 1<br/>(HTTP request)"]
-        T2["Task 2<br/>(DB query)"]
-        T3["Task 3<br/>(File read)"]
+    subgraph Tasks["Задачи"]
+        T1["Задача 1<br/>(HTTP-запрос)"]
+        T2["Задача 2<br/>(запрос к БД)"]
+        T3["Задача 3<br/>(чтение файла)"]
     end
 
-    subgraph OS["Operating System"]
-        NET["Network Stack"]
-        DISK["Disk I/O"]
+    subgraph OS["Операционная система"]
+        NET["Сетевой стек"]
+        DISK["Дисковый ввод-вывод"]
     end
 
     T1 --> QUEUE
@@ -46,12 +46,12 @@ graph TB
     style OS fill:#f3e5f5,color:#000
 ```
 
-### mio: The Foundation Layer
+### mio: Фундаментальный слой
 
-[mio](https://github.com/tokio-rs/mio) (Metal I/O) is not an executor — it's the lowest-level cross-platform I/O notification library. It wraps `epoll` (Linux), `kqueue` (macOS/BSD), and IOCP (Windows).
+Библиотека [mio](https://github.com/tokio-rs/mio) (Metal I/O) не является исполнителем — это самый низкоуровневый кроссплатформенный слой для получения уведомлений о вводе-выводе. Она оборачивает системные вызовы `epoll` (Linux), `kqueue` (macOS/BSD) и IOCP (Windows).
 
 ```rust
-// Conceptual mio usage (simplified):
+// Концептуальное использование mio (упрощенно):
 use mio::{Events, Interest, Poll, Token};
 use mio::net::TcpListener;
 
@@ -61,67 +61,67 @@ let mut events = Events::with_capacity(128);
 let mut server = TcpListener::bind("0.0.0.0:8080")?;
 poll.registry().register(&mut server, Token(0), Interest::READABLE)?;
 
-// Event loop — blocks until something happens
+// Цикл событий — блокирует поток до появления какого-либо события
 loop {
-    poll.poll(&mut events, None)?; // Sleeps until I/O event
+    poll.poll(&mut events, None)?; // Спим до события ввода-вывода
     for event in events.iter() {
         match event.token() {
-            Token(0) => { /* server has a new connection */ }
-            _ => { /* other I/O ready */ }
+            Token(0) => { /* у сервера новое входящее соединение */ }
+            _ => { /* готов другой ввод-вывод */ }
         }
     }
 }
 ```
 
-Most developers never touch mio directly — tokio and smol build on top of it.
+Большинство разработчиков никогда не работают с `mio` напрямую — `tokio` и `smol` строятся поверх нее.
 
-### io_uring: The Completion-Based Future
+### io_uring: Фьючер на основе уведомлений о завершении
 
-Linux's `io_uring` (kernel 5.1+) represents a fundamental shift from the readiness-based I/O model that mio/epoll use:
+Система `io_uring` в Linux (ядро 5.1+) представляет собой фундаментальный сдвиг по сравнению с моделью ввода-вывода на основе готовности (readiness-based), которую используют `mio`/`epoll`:
 
 ```text
-Readiness-based (epoll / mio / tokio):
-  1. Ask: "Is this socket readable?"     → epoll_wait()
-  2. Kernel: "Yes, it's ready"           → EPOLLIN event
-  3. App:   read(fd, buf)                → might still block briefly!
+На основе готовности (epoll / mio / tokio):
+  1. Запрос: «Этот сокет готов к чтению?»  → epoll_wait()
+  2. Ядро: «Да, он готов»                   → событие EPOLLIN
+  3. Приложение: read(fd, buf)             → всё еще может кратковременно заблокироваться!
 
-Completion-based (io_uring):
-  1. Submit: "Read from this socket into this buffer"  → SQE
-  2. Kernel: does the read asynchronously
-  3. App:   gets completed result with data            → CQE
+На основе завершения (io_uring):
+  1. Отправка: «Прочитай из сокета в этот буфер» → SQE (очередь отправки)
+  2. Ядро: выполняет чтение асинхронно
+  3. Приложение: получает готовый результат с данными → CQE (очередь завершения)
 ```
 
 ```mermaid
 graph LR
-    subgraph "Readiness Model (epoll)"
-        A1["App: is it ready?"] --> K1["Kernel: yes"]
-        K1 --> A2["App: now read()"]
-        A2 --> K2["Kernel: here's data"]
+    subgraph "Модель готовности (epoll)"
+        A1["Приложение: готово?"] --> K1["Ядро: да"]
+        K1 --> A2["Приложение: теперь читай"]
+        A2 --> K2["Ядро: вот данные"]
     end
 
-    subgraph "Completion Model (io_uring)"
-        B1["App: read this for me"] --> K3["Kernel: working..."]
-        K3 --> B2["App: got result + data"]
+    subgraph "Модель завершения (io_uring)"
+        B1["Приложение: прочитай это для меня"] --> K3["Ядро: работаю..."]
+        K3 --> B2["Приложение: готов результат + данные"]
     end
 
     style B1 fill:#c8e6c9,color:#000
     style B2 fill:#c8e6c9,color:#000
 ```
 
-**The ownership challenge**: io_uring requires the kernel to own the buffer until the operation completes. This conflicts with Rust's standard `AsyncRead` trait which borrows the buffer. That's why `tokio-uring` has different I/O traits:
+**Сложность с владением**: `io_uring` требует, чтобы ядро владело буфером до тех пор, пока операция не завершится. Это конфликтует со стандартным трейтом Rust `AsyncRead`, который заимствует буфер. Именно поэтому в `tokio-uring` используются другие трейты ввода-вывода:
 
 ```rust
-// Standard tokio (readiness-based) — borrows the buffer:
-let n = stream.read(&mut buf).await?;  // buf is borrowed
+// Стандартный tokio (на основе готовности) — заимствует буфер:
+let n = stream.read(&mut buf).await?;  // buf заимствуется
 
-// tokio-uring (completion-based) — takes ownership of the buffer:
-let (result, buf) = stream.read(buf).await;  // buf is moved in, returned back
+// tokio-uring (на основе завершения) — забирает владение буфером:
+let (result, buf) = stream.read(buf).await;  // buf передается внутрь и возвращается обратно
 let n = result?;
 ```
 
 ```rust
 // Cargo.toml: tokio-uring = "0.5"
-// NOTE: Linux-only, requires kernel 5.1+
+// ПРИМЕЧАНИЕ: Только для Linux, требуется ядро 5.1+
 
 fn main() {
     tokio_uring::start(async {
@@ -129,25 +129,25 @@ fn main() {
         let buf = vec![0u8; 4096];
         let (result, buf) = file.read_at(buf, 0).await;
         let bytes_read = result.unwrap();
-        println!("Read {} bytes: {:?}", bytes_read, &buf[..bytes_read]);
+        println!("Прочитано {} байт: {:?}", bytes_read, &buf[..bytes_read]);
     });
 }
 ```
 
-| Aspect | epoll (tokio) | io_uring (tokio-uring) |
+| Критерий | epoll (tokio) | io_uring (tokio-uring) |
 |--------|--------------|----------------------|
-| **Model** | Readiness notification | Completion notification |
-| **Syscalls** | epoll_wait + read/write | Batched SQE/CQE ring |
-| **Buffer ownership** | App retains (&mut buf) | Ownership transfer (move buf) |
-| **Platform** | Linux, macOS (kqueue), Windows (IOCP) | Linux 5.1+ only |
-| **Zero-copy** | No (userspace copy) | Yes (registered buffers) |
-| **Maturity** | Production-ready | Experimental |
+| **Модель** | Уведомление о готовности | Уведомление о завершении |
+| **Системные вызовы** | epoll_wait + read/write | Пакетное кольцо SQE/CQE |
+| **Владение буфером** | Остается у приложения (`&mut buf`) | Передача владения (перемещение `buf`) |
+| **Платформа** | Linux, macOS (kqueue), Windows (IOCP) | Только Linux 5.1+ |
+| **Zero-copy** | Нет (копирование в userspace) | Да (зарегистрированные буферы) |
+| **Стабильность** | Готов к продакшену | Экспериментальный |
 
-> **When to use io_uring**: High-throughput file I/O or networking where syscall overhead is the bottleneck (databases, storage engines, proxies serving 100k+ connections). For most applications, standard tokio with epoll is the right choice.
+> **Когда использовать io_uring**: В сценариях с высокой пропускной способностью файлового ввода-вывода или сети, где узким местом становятся накладные расходы на системные вызовы (базы данных, движки хранения данных, прокси-серверы, обслуживающие более 100 тысяч соединений). Для большинства прикладных приложений стандартного `tokio` с `epoll` будет более чем достаточно.
 
-### tokio: The Batteries-Included Runtime
+### tokio: Среда выполнения «всё включено»
 
-The dominant async runtime in the Rust ecosystem. Used by Axum, Hyper, Tonic, and most production Rust servers.
+Доминирующая асинхронная среда выполнения в экосистеме Rust. Используется в Axum, Hyper, Tonic и большинстве промышленных серверов на Rust.
 
 ```rust
 // Cargo.toml:
@@ -156,10 +156,10 @@ The dominant async runtime in the Rust ecosystem. Used by Axum, Hyper, Tonic, an
 
 #[tokio::main]
 async fn main() {
-    // Spawns a multi-threaded runtime with work-stealing scheduler
+    // Запускает многопоточный рантайм с планировщиком перехвата задач (work-stealing)
     let handle = tokio::spawn(async {
         tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-        "done"
+        "готово"
     });
 
     let result = handle.await.unwrap();
@@ -167,11 +167,11 @@ async fn main() {
 }
 ```
 
-**tokio features**: Timer, I/O, TCP/UDP, Unix sockets, signal handling, sync primitives (Mutex, RwLock, Semaphore, channels), fs, process, tracing integration.
+**Возможности Tokio**: Таймер, ввод-вывод, TCP/UDP, Unix-сокеты, обработка сигналов, примитивы синхронизации (`Mutex`, `RwLock`, `Semaphore`, каналы), файловая система, процессы, интеграция с логированием (`tracing`).
 
-### async-std: The Standard Library Mirror
+### async-std: Зеркало стандартной библиотеки
 
-Mirrors the `std` API with async versions. Less popular than tokio but simpler for beginners.
+Дублирует API стандартной библиотеки (`std`), предоставляя их асинхронные версии. Менее популярен, чем Tokio, но проще для новичков.
 
 ```rust
 // Cargo.toml:
@@ -186,9 +186,9 @@ async fn main() {
 }
 ```
 
-### smol: The Minimalist Runtime
+### smol: Минималистичная среда выполнения
 
-Small, zero-dependency async runtime. Great for libraries that want async without pulling in tokio.
+Небольшая асинхронная среда выполнения без зависимостей. Отлично подходит для библиотек, которым нужна асинхронность без затаскивания тяжелого `tokio`.
 
 ```rust
 // Cargo.toml:
@@ -198,7 +198,7 @@ Small, zero-dependency async runtime. Great for libraries that want async withou
 fn main() {
     smol::block_on(async {
         let result = smol::unblock(|| {
-            // Runs blocking code on a thread pool
+            // Запускает блокирующий код в пуле потоков
             std::fs::read_to_string("hello.txt")
         }).await.unwrap();
         println!("{result}");
@@ -206,15 +206,15 @@ fn main() {
 }
 ```
 
-### embassy: Async for Embedded (no_std)
+### embassy: Асинхронность для встраиваемых систем (no_std)
 
-Async runtime for embedded systems. No heap allocation, no `std` required.
+Асинхронная среда выполнения для микроконтроллеров и встраиваемых систем. Не требует кучи (heap) и стандартной библиотеки (`std`).
 
 ```rust
-// Runs on microcontrollers (e.g., STM32, nRF52, RP2040)
+// Работает на микроконтроллерах (например, STM32, nRF52, RP2040)
 #[embassy_executor::main]
 async fn main(spawner: embassy_executor::Spawner) {
-    // Blink an LED with async/await — no RTOS needed!
+    // Мигание светодиодом с помощью async/await — ОСРВ не требуется!
     let mut led = Output::new(p.PA5, Level::Low, Speed::Low);
     loop {
         led.set_high();
@@ -225,35 +225,35 @@ async fn main(spawner: embassy_executor::Spawner) {
 }
 ```
 
-### Runtime Decision Tree
+### Дереву решений для выбора среды выполнения
 
 ```mermaid
 graph TD
-    START["Choosing a Runtime"]
+    START["Выбор среды выполнения"]
 
-    Q1{"Building a<br/>network server?"}
-    Q2{"Need tokio ecosystem<br/>(Axum, Tonic, Hyper)?"}
-    Q3{"Building a library?"}
-    Q4{"Embedded /<br/>no_std?"}
-    Q5{"Want minimal<br/>dependencies?"}
+    Q1{"Создаете сетевой сервер?"}
+    Q2{"Нужна экосистема tokio<br/>(Axum, Tonic, Hyper)?"}
+    Q3{"Пишете библиотеку?"}
+    Q4{"Микроконтроллеры /<br/>no_std?"}
+    Q5{"Нужен минимум зависимостей?"}
 
-    TOKIO["🟢 tokio<br/>Best ecosystem, most popular"]
-    SMOL["🔵 smol<br/>Minimal, no ecosystem lock-in"]
-    EMBASSY["🟠 embassy<br/>Embedded-first, no alloc"]
-    ASYNC_STD["🟣 async-std<br/>std-like API, good for learning"]
-    AGNOSTIC["🔵 runtime-agnostic<br/>Use futures crate only"]
+    TOKIO["🟢 tokio<br/>Лучшая экосистема, самый популярный"]
+    SMOL["🔵 smol<br/>Минимум зависимостей, нет привязки к экосистеме"]
+    EMBASSY["orange embassy<br/>Для встраиваемых систем, без кучи"]
+    ASYNC_STD["🟣 async-std<br/>Похож на std, хорош для обучения"]
+    AGNOSTIC["🔵 независимый от рантайма<br/>Используйте только futures-crate"]
 
     START --> Q1
-    Q1 -->|Yes| Q2
-    Q1 -->|No| Q3
-    Q2 -->|Yes| TOKIO
-    Q2 -->|No| Q5
-    Q3 -->|Yes| AGNOSTIC
-    Q3 -->|No| Q4
-    Q4 -->|Yes| EMBASSY
-    Q4 -->|No| Q5
-    Q5 -->|Yes| SMOL
-    Q5 -->|No| ASYNC_STD
+    Q1 -->|Да| Q2
+    Q1 -->|Нет| Q3
+    Q2 -->|Да| TOKIO
+    Q2 -->|Нет| Q5
+    Q3 -->|Да| AGNOSTIC
+    Q3 -->|Нет| Q4
+    Q4 -->|Да| EMBASSY
+    Q4 -->|Нет| Q5
+    Q5 -->|Да| SMOL
+    Q5 -->|Нет| ASYNC_STD
 
     style TOKIO fill:#c8e6c9,color:#000
     style SMOL fill:#bbdefb,color:#000
@@ -262,99 +262,97 @@ graph TD
     style AGNOSTIC fill:#bbdefb,color:#000
 ```
 
-### Runtime Comparison Table
+### Сравнительная таблица рантаймов
 
-| Feature | tokio | async-std | smol | embassy |
+| Возможность | tokio | async-std | smol | embassy |
 |---------|-------|-----------|------|---------|
-| **Ecosystem** | Dominant | Small | Minimal | Embedded |
-| **Multi-threaded** | ✅ Work-stealing | ✅ | ✅ | ❌ (single-core) |
+| **Экосистема** | Доминирующая | Небольшая | Минимальная | Встраиваемые системы |
+| **Многопоточность** | ✅ Work-stealing | ✅ | ✅ | ❌ (одноядерный) |
 | **no_std** | ❌ | ❌ | ❌ | ✅ |
-| **Timer** | ✅ Built-in | ✅ Built-in | Via `async-io` | ✅ HAL-based |
-| **I/O** | ✅ Own abstractions | ✅ std mirror | ✅ Via `async-io` | ✅ HAL drivers |
-| **Channels** | ✅ Rich set | ✅ | Via `async-channel` | ✅ |
-| **Learning curve** | Medium | Low | Low | High (HW) |
-| **Binary size** | Large | Medium | Small | Tiny |
+| **Таймер** | ✅ Встроенный | ✅ Встроенный | Через `async-io` | ✅ На базе HAL |
+| **Ввод-вывод** | ✅ Свои абстракции | ✅ Зеркало std | Через `async-io` | ✅ Драйверы HAL |
+| **Каналы** | ✅ Богатый набор | ✅ | Через `async-channel` | ✅ |
+| **Сложность освоения** | Средняя | Низкая | Низкая | Высокая (из-за железа) |
+| **Размер бинарника** | Большой | Средний | Маленький | Крошечный |
 
 <details>
-<summary><strong>🏋️ Exercise: Runtime Comparison</strong> (click to expand)</summary>
+<summary><strong>🏋️ Упражнение: Сравнение сред выполнения</strong> (нажмите для раскрытия)</summary>
 
-**Challenge**: Write the same program using three different runtimes (tokio, smol, and async-std). The program should:
-1. Fetch a URL (simulate with a sleep)
-2. Read a file (simulate with a sleep)
-3. Print both results
+**Задача**: Напишите одну и ту же программу под три разные среды выполнения (Tokio, Smol и Async-std). Программа должна:
+1. Скачивать URL (симулируйте с помощью сна длительностью 100 мс).
+2. Читать файл (симулируйте с помощью сна длительностью 50 мс).
+3. Выводить оба результата.
 
-This exercise demonstrates that the async/await code is the same — only the runtime setup differs.
+Это упражнение демонстрирует, что сам асинхронный код с async/await остается прежним — меняется только настройка среды выполнения.
 
 <details>
-<summary>🔑 Solution</summary>
+<summary>🔑 Решение</summary>
 
 ```rust
-// ----- tokio version -----
+// ----- Версия под tokio -----
 // Cargo.toml: tokio = { version = "1", features = ["full"] }
 #[tokio::main]
 async fn main() {
     let (url_result, file_result) = tokio::join!(
         async {
             tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-            "Response from URL"
+            "Ответ от URL"
         },
         async {
             tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-            "Contents of file"
+            "Содержимое файла"
         },
     );
-    println!("URL: {url_result}, File: {file_result}");
+    println!("URL: {url_result}, Файл: {file_result}");
 }
 
-// ----- smol version -----
+// ----- Версия под smol -----
 // Cargo.toml: smol = "2", futures-lite = "2"
 fn main() {
     smol::block_on(async {
         let (url_result, file_result) = futures_lite::future::zip(
             async {
                 smol::Timer::after(std::time::Duration::from_millis(100)).await;
-                "Response from URL"
+                "Ответ от URL"
             },
             async {
                 smol::Timer::after(std::time::Duration::from_millis(50)).await;
-                "Contents of file"
+                "Содержимое файла"
             },
         ).await;
-        println!("URL: {url_result}, File: {file_result}");
+        println!("URL: {url_result}, Файл: {file_result}");
     });
 }
 
-// ----- async-std version -----
+// ----- Версия под async-std -----
 // Cargo.toml: async-std = { version = "1", features = ["attributes"] }
 #[async_std::main]
 async fn main() {
     let (url_result, file_result) = futures::future::join(
         async {
             async_std::task::sleep(std::time::Duration::from_millis(100)).await;
-            "Response from URL"
+            "Ответ от URL"
         },
         async {
             async_std::task::sleep(std::time::Duration::from_millis(50)).await;
-            "Contents of file"
+            "Содержимое файла"
         },
     ).await;
-    println!("URL: {url_result}, File: {file_result}");
+    println!("URL: {url_result}, Файл: {file_result}");
 }
 ```
 
-**Key takeaway**: The async business logic is identical across runtimes. Only the entry point and timer/IO APIs differ. This is why writing runtime-agnostic libraries (using only `std::future::Future`) is valuable.
+**Ключевой вывод**: Асинхронная бизнес-логика идентична для всех сред выполнения. Различаются только точка входа и API таймеров / ввода-вывода. Вот почему так ценно писать библиотеки независимыми от конкретного рантайма (используя только `std::future::Future`).
 
 </details>
 </details>
 
-> **Key Takeaways — Executors and Runtimes**
-> - An executor's job: poll futures when woken, sleep efficiently using OS I/O APIs
-> - **tokio** is the default for servers; **smol** for minimal footprint; **embassy** for embedded
-> - Your business logic should depend on `std::future::Future`, not a specific runtime
-> - io_uring (Linux 5.1+) is the future of high-perf I/O but the ecosystem is still maturing
+> **Основные выводы — Исполнители и среды выполнения**
+> - Задача исполнителя — опрашивать фьючеры при их пробуждении и эффективно спать, используя системные API ввода-вывода
+> - **Tokio** — выбор по умолчанию для веб-серверов; **Smol** — для минимального размера бинарного файла; **Embassy** — для микроконтроллеров
+> - Ваша бизнес-логика должна зависеть от `std::future::Future`, а не от конкретной среды выполнения
+> - Технология `io_uring` (Linux 5.1+) — это будущее высокопроизводительного ввода-вывода, но ее экосистема все еще развивается
 
-> **See also:** [Ch 8 — Tokio Deep Dive](ch08-tokio-deep-dive.md) for tokio specifics, [Ch 9 — When Tokio Isn't the Right Fit](ch09-when-tokio-isnt-the-right-fit.md) for alternatives
+> **См. также:** [Глава 8 — Глубокое погружение в Tokio](ch08-tokio-deep-dive.md) для изучения специфики Tokio, и [Глава 9 — Когда Tokio не подходит](ch09-when-tokio-isnt-the-right-fit.md) для поиска альтернатив
 
 ***
-
-

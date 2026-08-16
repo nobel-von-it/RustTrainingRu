@@ -1,24 +1,24 @@
-# 10. Async Traits 🟡
+# 10. Асинхронные трейты 🟡
 
-> **What you'll learn:**
-> - Why async methods in traits took years to stabilize
-> - RPITIT: native async trait methods (Rust 1.75+)
-> - The dyn dispatch challenge and `Send` bounds via `trait_variant`
-> - Async closures (Rust 1.85+): `async Fn()` and `async FnOnce()`
+> **Чему вы научитесь:**
+> - Почему стабилизация асинхронных методов в трейтах заняла годы
+> - RPITIT: встроенной поддержке асинхронных методов трейтов (Rust 1.75+)
+> - Сложностям с динамической диспетчеризацией (`dyn`) и `Send`-ограничениями в `trait_variant`
+> - Асинхронным замыканиям (Rust 1.85+): `async Fn()` и `async FnOnce()`
 
 ```mermaid
 graph TD
-    subgraph "Async Trait Approaches"
+    subgraph "Подходы к асинхронным трейтам"
         direction TB
-        RPITIT["RPITIT (Rust 1.75+)<br/>async fn in trait<br/>Static dispatch only"]
-        VARIANT["trait_variant<br/>Auto-generates Send variant<br/>Static dispatch only"]
-        BOXED["Box&lt;dyn Future&gt;<br/>Manual boxing<br/>Works everywhere"]
-        CLOSURE["Async Closures (1.85+)<br/>async Fn() / async FnOnce()<br/>Callbacks & middleware"]
+        RPITIT["RPITIT (Rust 1.75+)<br/>async fn в трейте<br/>Только стат. диспетчеризация"]
+        VARIANT["trait_variant<br/>Автогенерация Send-варианта<br/>Только стат. диспетчеризация"]
+        BOXED["Box&lt;dyn Future&gt;<br/>Ручной боксинг<br/>Работает везде"]
+        CLOSURE["Асинхронные замыкания (1.85+)<br/>async Fn() / async FnOnce()<br/>Коллбеки и middleware"]
     end
 
-    RPITIT -->|"Need Send?"| VARIANT
-    RPITIT -->|"Need dyn?"| BOXED
-    CLOSURE -->|"Replaces"| BOXED
+    RPITIT -->|"Нужен Send?"| VARIANT
+    RPITIT -->|"Нужен dyn?"| BOXED
+    CLOSURE -->|"Заменяет"| BOXED
 
     style RPITIT fill:#d4efdf,stroke:#27ae60,color:#000
     style VARIANT fill:#e8f4f8,stroke:#2980b9,color:#000
@@ -26,29 +26,29 @@ graph TD
     style CLOSURE fill:#e8daef,stroke:#8e44ad,color:#000
 ```
 
-## The History: Why It Took So Long
+## История: почему это заняло так много времени
 
-Async methods in traits were Rust's most requested feature for years. The problem:
+Асинхронные методы в трейтах оставались самой запрашиваемой возможностью Rust на протяжении многих лет. Проблема заключалась в следующем:
 
 ```rust
-// This didn't compile until Rust 1.75 (Dec 2023):
+// Это не компилировалось до версии Rust 1.75 (декабрь 2023 года):
 trait DataStore {
     async fn get(&self, key: &str) -> Option<String>;
 }
-// Why? Because async fn returns `impl Future<Output = T>`,
-// and `impl Trait` in trait return position wasn't supported.
+// Почему? Потому что async fn возвращает `impl Future<Output = T>`,
+// а `impl Trait` в позиции возвращаемого значения трейта не поддерживался.
 ```
 
-The fundamental challenge: when a trait method returns `impl Future`, each implementor returns a *different concrete type*. The compiler needs to know the size of the return type, but trait methods are dynamically dispatched.
+Фундаментальная сложность: когда метод трейта возвращает `impl Future`, каждый тип, реализующий этот трейт, возвращает *свой конкретный тип фьючера*. Компилятору необходимо знать размер возвращаемого значения, но методы трейтов могут использовать динамическую диспетчеризацию.
 
 ### RPITIT: Return Position Impl Trait in Trait
 
-Since Rust 1.75, this just works for static dispatch:
+Начиная с версии Rust 1.75, это из коробки работает для статической диспетчеризации:
 
 ```rust
 trait DataStore {
     async fn get(&self, key: &str) -> Option<String>;
-    // Desugars to:
+    // Разворачивается в:
     // fn get(&self, key: &str) -> impl Future<Output = Option<String>>;
 }
 
@@ -62,7 +62,7 @@ impl DataStore for InMemoryStore {
     }
 }
 
-// ✅ Works with generics (static dispatch):
+// ✅ Работает с обобщениями (статическая диспетчеризация):
 async fn lookup<S: DataStore>(store: &S, key: &str) {
     if let Some(val) = store.get(key).await {
         println!("{key} = {val}");
@@ -70,51 +70,51 @@ async fn lookup<S: DataStore>(store: &S, key: &str) {
 }
 ```
 
-### dyn Dispatch and Send Bounds
+### dyn-диспетчеризация и Send-ограничения
 
-The limitation: you can't use `dyn DataStore` directly because the compiler doesn't know the size of the returned future:
+Ограничение: вы не можете использовать `dyn DataStore` напрямую, так как компилятор не знает размер возвращаемого фьючера:
 
 ```rust
-// ❌ Doesn't work:
+// ❌ Не работает:
 // async fn lookup_dyn(store: &dyn DataStore, key: &str) { ... }
-// Error: the trait `DataStore` is not dyn-compatible because method `get`
-//        is `async`
+// Ошибка: трейт `DataStore` не является dyn-совместимым, так как метод `get`
+//        помечен как `async`
 
-// ✅ Workaround: Return a boxed future
+// ✅ Обходной путь: Возврат упакованного (boxed) фьючера
 trait DynDataStore {
     fn get(&self, key: &str) -> Pin<Box<dyn Future<Output = Option<String>> + Send + '_>>;
 }
 ```
 
-**The Send problem**: In multi-threaded runtimes, spawned tasks must be `Send`. But async trait methods don't automatically add `Send` bounds:
+**Проблема с Send**: В многопоточных средах выполнения все запускаемые задачи должны реализовывать `Send`. Однако асинхронные методы трейтов не добавляют ограничения `Send` автоматически:
 
 ```rust
 trait Worker {
-    async fn run(self); // Future might or might not be Send
+    async fn run(self); // Фьючер может как реализовывать, так и не реализовывать Send
 }
 
 struct MyWorker;
 
 impl Worker for MyWorker {
     async fn run(self) {
-        // If this uses !Send types, the future is !Send
+        // Если здесь используются !Send-типы, фьючер становится !Send
         let rc = std::rc::Rc::new(42);
         some_work().await;
         println!("{rc}");
     }
 }
 
-// ❌ This fails because the future is !Send (Rc is !Send):
-// tokio::spawn(worker.run()); // Requires Send + 'static
+// ❌ Эта строчка выдаст ошибку, так как фьючер является !Send (Rc не реализует Send):
+// tokio::spawn(worker.run()); // Требует Send + 'static
 //
-// Note: We use `self` (owned) here because tokio::spawn also
-// requires 'static — a future borrowing &self can't be 'static.
-// Even without Rc, `async fn run(&self)` wouldn't be spawnable.
+// Примечание: Мы используем self (по значению) здесь, так как tokio::spawn также
+// требует 'static — фьючер, заимствующий &self, не может быть 'static.
+// Даже без Rc, метод `async fn run(&self)` нельзя было бы запустить через spawn.
 ```
 
-### The trait_variant Crate
+### Библиотека trait_variant
 
-The `trait_variant` crate (from the Rust async working group) generates a `Send` variant automatically:
+Библиотека `trait_variant` (созданная рабочей группой по асинхронному Rust) автоматически генерирует `Send`-версию трейта:
 
 ```rust
 // Cargo.toml: trait-variant = "0.1"
@@ -125,63 +125,60 @@ trait DataStore {
     async fn set(&self, key: &str, value: String);
 }
 
-// Now you have two traits:
-// - DataStore: no Send bound on the futures
-// - SendDataStore: all futures are Send
-// Both have the same methods, implementors implement DataStore
-// and get SendDataStore for free if their futures are Send.
+// Теперь у вас есть два трейта:
+// - DataStore: без требований Send к фьючерам
+// - SendDataStore: все фьючеры реализуют Send
+// Оба имеют одинаковые методы, разработчики реализуют DataStore,
+// и автоматически получают SendDataStore, если их фьючеры реализуют Send.
 
-// Use SendDataStore when you need to spawn tasks:
+// Используйте SendDataStore, когда вам нужно запускать задачи:
 async fn spawn_lookup<S: SendDataStore + 'static>(store: Arc<S>) {
     tokio::spawn(async move {
         store.get("key").await;
     });
 }
 
-// ⚠️ Note: trait_variant does NOT enable dyn dispatch.
-// The generated trait still uses `impl Future`, so `dyn SendDataStore`
-// is not object-safe. For dyn dispatch, you still need manual boxing
-// (see the Box::pin approach above) or the `async-trait` crate.
+// ⚠️ Примечание: trait_variant НЕ включает dyn-диспетчеризацию.
+// Сгенерированный трейт все еще возвращает impl Future, поэтому dyn SendDataStore
+// не является объектно-безопасным. Для dyn-диспетчеризации вам все еще нужен ручной боксинг
+// (см. подход с Box::pin выше) или библиотека async-trait.
 ```
 
-### Quick Reference: Async Traits
+### Быстрая шпаргалка: Асинхронные трейты
 
-| Approach | Static Dispatch | Dynamic Dispatch | Send | Syntax Overhead |
+| Подход | Стат. диспетчеризация | Дин. диспетчеризация | Send | Синтаксический оверхед |
 |----------|:---:|:---:|:---:|---|
-| Native `async fn` in trait | ✅ | ❌ | Implicit | None |
-| `trait_variant` | ✅ | ❌ | Explicit | `#[trait_variant::make]` |
-| Manual `Box::pin` | ✅ | ✅ | Explicit | High |
-| `async-trait` crate | ✅ | ✅ | `#[async_trait]` | Medium (proc macro) |
+| Встроенный `async fn` в трейте | ✅ | ❌ | Неявный | Отсутствует |
+| `trait_variant` | ✅ | ❌ | Явный | `#[trait_variant::make]` |
+| Ручной `Box::pin` | ✅ | ✅ | Явный | Высокий |
+| Библиотека `async-trait` | ✅ | ✅ | `#[async_trait]` | Средний (proc macro) |
 
-> **Recommendation**: For new code (Rust 1.75+), use native async traits. Add
-> `trait_variant` when you need `Send` bounds for spawning tasks. For `dyn`
-> dispatch, use manual `Box::pin` or the `async-trait` crate. The native
-> approach is zero-cost for static dispatch.
+> **Рекомендация**: Для нового кода (Rust 1.75+) используйте встроенные асинхронные трейты. Добавляйте `trait_variant`, когда вам нужны `Send`-ограничения для запуска фоновых задач. Для динамической диспетчеризации (`dyn`) используйте ручной возврат `Box::pin` или библиотеку `async-trait`. Встроенный подход имеет нулевую стоимость для статической диспетчеризации.
 
-### Async Closures (Rust 1.85+)
+### Асинхронные замыкания (Rust 1.85+)
 
-Since Rust 1.85, `async closures` are stable — closures that capture their environment and return a future:
+Начиная с версии Rust 1.85, были стабилизированы асинхронные замыкания — замыкания, которые захватывают контекст и возвращают фьючер:
 
 ```rust
-// Before 1.85: awkward workaround
+// До версии 1.85: неудобный обходной путь
 let urls = vec!["https://a.com", "https://b.com"];
 let fetchers: Vec<_> = urls.iter().map(|url| {
     let url = url.to_string();
-    // Returns a non-async closure that returns an async block
+    // Возвращает обычное замыкание, возвращающее асинхронный блок
     move || async move { reqwest::get(&url).await }
 }).collect();
 
-// After 1.85: async closures just work
+// После версии 1.85: асинхронные замыкания работают из коробки
 let fetchers: Vec<_> = urls.iter().map(|url| {
     async move || { reqwest::get(url).await }
-    // ↑ This is an async closure — captures url, returns a Future
+    // ↑ Это асинхронное замыкание — захватывает url, возвращает Future
 }).collect();
 ```
 
-Async closures implement the new `AsyncFn`, `AsyncFnMut`, and `AsyncFnOnce` traits, which mirror `Fn`, `FnMut`, `FnOnce`:
+Асинхронные замыкания реализуют новые трейты `AsyncFn`, `AsyncFnMut` и `AsyncFnOnce`, которые зеркально повторяют стандартные `Fn`, `FnMut` и `FnOnce`:
 
 ```rust
-// Generic function accepting an async closure
+// Обобщенная функция, принимающая асинхронное замыкание
 async fn retry<F>(max: usize, f: F) -> Result<String, Error>
 where
     F: AsyncFn() -> Result<String, Error>,
@@ -195,16 +192,16 @@ where
 }
 ```
 
-> **Migration tip**: If you have code using `Fn() -> impl Future<Output = T>`,
-> consider switching to `AsyncFn() -> T` for cleaner signatures.
+> **Совет по миграции**: Если у вас есть код с сигнатурой `Fn() -> impl Future<Output = T>`,
+> рассмотрите возможность переключения на `AsyncFn() -> T` для более чистого описания типов.
 
 <details>
-<summary><strong>🏋️ Exercise: Design an Async Service Trait</strong> (click to expand)</summary>
+<summary><strong>🏋️ Упражнение: Проектирование асинхронного сервисного трейта</strong> (нажмите для раскрытия)</summary>
 
-**Challenge**: Design a `Cache` trait with async `get` and `set` methods. Implement it twice: once with a `HashMap` (in-memory) and once with a simulated Redis backend (use `tokio::time::sleep` to simulate network latency). Write a generic function that works with both.
+**Задача**: Спроектируйте трейт `Cache` с асинхронными методами `get` и `set`. Реализуйте его дважды: один раз на основе `HashMap` (в оперативной памяти), а второй раз — с имитацией бэкенда Redis (используйте `tokio::time::sleep` для симуляции задержек сети). Напишите обобщенную функцию, которая работает с обеими реализациями.
 
 <details>
-<summary>🔑 Solution</summary>
+<summary>🔑 Решение</summary>
 
 ```rust
 use std::collections::HashMap;
@@ -217,7 +214,7 @@ trait Cache {
     async fn set(&self, key: &str, value: String);
 }
 
-// --- In-memory implementation ---
+// --- Реализация в оперативной памяти ---
 struct MemoryCache {
     store: Mutex<HashMap<String, String>>,
 }
@@ -240,7 +237,7 @@ impl Cache for MemoryCache {
     }
 }
 
-// --- Simulated Redis implementation ---
+// --- Имитация Redis-хранилища ---
 struct RedisCache {
     store: Mutex<HashMap<String, String>>,
     latency: Duration,
@@ -257,7 +254,7 @@ impl RedisCache {
 
 impl Cache for RedisCache {
     async fn get(&self, key: &str) -> Option<String> {
-        sleep(self.latency).await; // Simulate network round-trip
+        sleep(self.latency).await; // Имитируем задержку сети
         self.store.lock().await.get(key).cloned()
     }
 
@@ -267,7 +264,7 @@ impl Cache for RedisCache {
     }
 }
 
-// --- Generic function working with any Cache ---
+// --- Обобщенная функция, работающая с любым Cache ---
 async fn cache_demo<C: Cache>(cache: &C, label: &str) {
     cache.set("greeting", "Hello, async!".into()).await;
     let val = cache.get("greeting").await;
@@ -284,19 +281,17 @@ async fn main() {
 }
 ```
 
-**Key takeaway**: The same generic function works with both implementations through static dispatch. No boxing, no allocation overhead. If you need to spawn these futures on a multi-threaded runtime, add `trait_variant::make(SendCache: Send)` to get `Send` bounds. For dynamic dispatch, use manual `Box::pin` or the `async-trait` crate.
+**Ключевой вывод**: Одна и та же обобщенная функция работает с обеими реализациями благодаря статической диспетчеризации. Никакого боксинга и накладных расходов на аллокацию. Если вам нужно запускать эти фьючерсы в многопоточном рантайме, добавьте макрос `trait_variant::make(SendCache: Send)` для получения ограничений `Send`. Для динамической диспетчеризации используйте ручной возврат `Box::pin` или библиотеку `async-trait`.
 
 </details>
 </details>
 
-> **Key Takeaways — Async Traits**
-> - Since Rust 1.75, you can write `async fn` directly in traits (no `#[async_trait]` crate needed)
-> - `trait_variant::make` auto-generates a `Send` variant for spawning tasks (static dispatch only)
-> - Async closures (`async Fn()`) stabilized in 1.85 — use for callbacks and middleware
-> - Prefer static dispatch (`<S: Service>`) over `dyn` for performance-critical code
+> **Основные выводы — Асинхронные трейты**
+> - Найтиная с версии Rust 1.75, вы можете писать `async fn` прямо в трейтах (библиотека `#[async_trait]` больше не обязательна)
+> - Макрос `trait_variant::make` автоматически генерирует `Send`-версию трейта для запуска фоновых задач (только при статической диспетчеризации)
+> - Асинхронные замыкания (`async Fn()`) стабилизированы в Rust 1.85 — используйте их для обратных вызовов и middleware
+> - Предпочитайте статическую диспетчеризацию (`<S: Service>`) вместо динамической (`dyn`) для критически важного по производительности кода
 
-> **See also:** [Ch 13 — Production Patterns](ch13-production-patterns.md) for Tower's `Service` trait, [Ch 6 — Building Futures by Hand](ch06-building-futures-by-hand.md) for manual trait implementations
+> **См. также:** [Глава 13 — Паттерны для продакшена](ch13-production-patterns.md) для изучения трейта `Service` из библиотеки Tower, [Глава 6 — Создание Futures вручную](ch06-building-futures-by-hand.md) для ручного написания реализаций трейтов
 
 ***
-
-
