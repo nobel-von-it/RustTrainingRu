@@ -45,21 +45,23 @@ struct Slice<'a, T> {
 
 Используйте `PhantomData`, чтобы предотвратить смешивание значений из разных «сессий» или «контекстов»:
 
-```rust
+Этот пример намеренно завершается ошибкой компиляции при обращении между аренами, даже если дескриптор выделен внутри внутреннего замыкания:
+
+```rust,compile_fail,E0521
 use std::cell::RefCell;
 use std::marker::PhantomData;
 
 /// Дескриптор, брендированный к конкретному экземпляру арены.
-/// Инвариантен по 'arena — предотвращает использование дескриптора из одной арены в другой.
 struct ArenaHandle<'arena> {
     index: usize,
-    _brand: PhantomData<*mut &'arena ()>,
+    _phantom: PhantomData<&'arena ()>,
 }
 
 /// Арена, брендирующая каждый дескриптор своим уникальным временем жизни.
+/// Инвариантна по 'arena — предотвращает сокращение бренда для соответствия другой арене.
 struct Arena<'arena> {
     data: RefCell<Vec<String>>,
-    _phantom: PhantomData<&'arena ()>,
+    _brand: PhantomData<*mut &'arena ()>,
 }
 
 /// Создает арену и передает ее в замыкание.
@@ -67,7 +69,7 @@ struct Arena<'arena> {
 fn with_arena<R>(f: impl for<'arena> FnOnce(&Arena<'arena>) -> R) -> R {
     let arena = Arena {
         data: RefCell::new(Vec::new()),
-        _phantom: PhantomData,
+        _brand: PhantomData,
     };
     f(&arena)
 }
@@ -78,7 +80,7 @@ impl<'arena> Arena<'arena> {
         let mut data = self.data.borrow_mut();
         let index = data.len();
         data.push(value);
-        ArenaHandle { index, _brand: PhantomData }
+        ArenaHandle { index, _phantom: PhantomData }
     }
 
     /// Поиск по дескриптору — принимает только дескрипторы из ЭТОЙ арены
@@ -90,16 +92,18 @@ impl<'arena> Arena<'arena> {
 
 fn main() {
     with_arena(|arena1| {
-        let handle1 = arena1.alloc("hello".to_string());
-        println!("{}", arena1.get(&handle1)); // ✅
+        with_arena(|arena2| {
+            let handle1 = arena1.alloc("hello".to_string());
+            println!("{}", arena1.get(&handle1)); // ✅
 
-        // Нельзя использовать handle1 с другой ареной — ошибка компиляции
-        // with_arena(|arena2| {
-        //     arena2.get(&handle1); // ❌ заимствованные данные выходят за пределы замыкания
-        // });
+            // Нельзя использовать handle1 с другой ареной — ошибка компиляции
+            arena2.get(&handle1); // ❌ заимствованные данные выходят за пределы замыкания
+        });
     });
 }
 ```
+
+Арена должна быть **инвариантна** по отношению к `'arena`: иначе разделяемая ссылка на внешнюю арену может сократиться до бренда внутренней арены. Сделать инвариантным только дескриптор недостаточно — аллокация во внешней арене внутри внутреннего замыкания в таком случае могла бы создать дескриптор с внутренним брендом. `PhantomData<*mut &'arena ()>` фиксирует бренд арены, в то время как дескриптор может оставаться ковариантным.
 
 ### Шаблон единиц измерения (Unit-of-Measure)
 
